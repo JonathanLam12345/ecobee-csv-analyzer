@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'dart:typed_data';
+
 // ignore: avoid_web_libraries_in_flutter
 import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:syncfusion_flutter_xlsio/xlsio.dart' as xlsio;
 import 'package:csv/csv.dart';
@@ -21,10 +23,13 @@ void main() async {
       measurementId: "G-9VLF1JLCVW",
     ),
   );
-  runApp(const MaterialApp(
-    home: ExcelProcessorApp(),
-    debugShowCheckedModeBanner: false,
-  ));
+  runApp(
+    const MaterialApp(
+      title: "ecobee CSV Analyzer",
+      home: ExcelProcessorApp(),
+      debugShowCheckedModeBanner: false,
+    ),
+  );
 }
 
 class ExcelProcessorApp extends StatefulWidget {
@@ -35,11 +40,12 @@ class ExcelProcessorApp extends StatefulWidget {
 }
 
 class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
+  static FirebaseAnalytics analytics = FirebaseAnalytics.instance;
+
   bool _isDragging = false;
   bool _isProcessing = false;
-  String _statusMessage = "Drag & Drop or Click to upload CSV";
+  String _statusMessage = "Drag & Drop CSV Here \nor\n Click Here to Upload CSV";
 
-  // HTML File Picker for Click-to-Upload
   void _pickFile() {
     final html.FileUploadInputElement uploadInput = html.FileUploadInputElement();
     uploadInput.accept = '.csv';
@@ -49,10 +55,13 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       final files = uploadInput.files;
       if (files != null && files.isNotEmpty) {
         final file = files[0];
+
+        analytics.logEvent(
+          name: 'file_picked_manually',
+        );
+
         final reader = html.FileReader();
-
         reader.readAsArrayBuffer(file);
-
         reader.onLoadEnd.listen((e) async {
           final Uint8List bytes = reader.result as Uint8List;
           await _processFile(bytes, file.name);
@@ -66,6 +75,10 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       _isProcessing = true;
       _statusMessage = "Processing CSV...";
     });
+
+    await analytics.logEvent(
+      name: 'process_file_start',
+    );
 
     await Future.delayed(const Duration(milliseconds: 100));
 
@@ -85,122 +98,117 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       workbook = xlsio.Workbook();
       final xlsio.Worksheet sheet = workbook.worksheets[0];
 
+      List<int> columnsToSkip = [];
+      if (csvRows.length >= 6) {
+        List<dynamic> headerRow = csvRows[5];
+        for (int j = 0; j < headerRow.length; j++) {
+          String headerText = headerRow[j].toString().toLowerCase().trim();
+          if (headerText.contains("wind speed (km/h)")) {
+            columnsToSkip.add(j);
+          }
+        }
+      }
+
       int maxColumns = 0;
       double maxHeaderLength = 0;
       bool hasLongCalendarContent = false;
 
-      // Calculate tight row height based on rotated headers
-      if (csvRows.length >= 6) {
-        for (var cell in csvRows[5]) {
-          double length = cell?.toString().length.toDouble() ?? 0;
-          if (length > maxHeaderLength) maxHeaderLength = length;
-        }
-        double calculatedHeight = (maxHeaderLength * 3.2).clamp(20.0, 120.0);
-        sheet.setRowHeightInPixels(6, calculatedHeight);
-      }
-
-      bool highlightedCoolSet = false;
-      bool highlightedHeatSet = false;
-      bool highlightedCurrentTemp = false;
-      bool highlightedThermostatTemp = false;
-
       for (int i = 0; i < csvRows.length; i++) {
         final List<dynamic> rowData = csvRows[i];
-        if (rowData.length > maxColumns) maxColumns = rowData.length;
+        int targetCol = 1;
 
         for (int j = 0; j < rowData.length; j++) {
+          if (columnsToSkip.contains(j)) continue;
           final dynamic rawValue = rowData[j];
           final String cellText = rawValue?.toString() ?? "";
 
-          // Process Header Row (Row 6)
           if (i == 5) {
             String? hexColor;
-            if (!highlightedCoolSet && cellText.contains("Cool Set Temp")) {
+            if (cellText.contains("Cool Set Temp")) {
               hexColor = '#496daf';
-              highlightedCoolSet = true;
-            } else if (!highlightedHeatSet && cellText.contains("Heat Set Temp")) {
+            } else if (cellText.contains("Heat Set Temp")) {
               hexColor = '#fe4949';
-              highlightedHeatSet = true;
-            } else if (!highlightedCurrentTemp && cellText.contains("Current Temp")) {
+            } else if (cellText.contains("Current Temp") ||
+                cellText.contains("Thermostat Temperature")) {
               hexColor = '#ffff00';
-              highlightedCurrentTemp = true;
-            } else if (!highlightedThermostatTemp && cellText.contains("Thermostat Temperature")) {
-              hexColor = '#ffff00';
-              highlightedThermostatTemp = true;
             }
 
-            if (j >= 4) {
-              final xlsio.Range headerRange = sheet.getRangeByIndex(1, j + 1, 6, j + 1);
+            if (targetCol > 4) {
+              final xlsio.Range headerRange = sheet.getRangeByIndex(1, targetCol, 6, targetCol);
               headerRange.merge();
               headerRange.setText(cellText);
               headerRange.cellStyle.rotation = 90;
               headerRange.cellStyle.vAlign = xlsio.VAlignType.bottom;
               headerRange.cellStyle.hAlign = xlsio.HAlignType.center;
               if (hexColor != null) headerRange.cellStyle.backColor = hexColor;
+
+              double length = cellText.length.toDouble();
+              if (length > maxHeaderLength) maxHeaderLength = length;
             } else {
-              final cellRange = sheet.getRangeByIndex(i + 1, j + 1);
+              final cellRange = sheet.getRangeByIndex(i + 1, targetCol);
               cellRange.setText(cellText);
               if (hexColor != null) cellRange.cellStyle.backColor = hexColor;
             }
-          } else {
-            // Process Data Rows & Top Metadata Rows
-            if (i >= 6 || j < 4) {
-              final cellRange = sheet.getRangeByIndex(i + 1, j + 1);
-
-              // Skip converting the serial number to an integer
-              if (i == 0 && j == 3) {
-                cellRange.setText(cellText);
+          }
+          else if (i >= 6 || targetCol <= 4) {
+            final cellRange = sheet.getRangeByIndex(i + 1, targetCol);
+            if (i == 0 && j == 3) {
+              cellRange.setText(cellText);
+            } else {
+              final double? numericValue = double.tryParse(cellText);
+              if (numericValue != null) {
+                cellRange.setNumber(numericValue);
               } else {
-                final double? numericValue = double.tryParse(cellText);
-                if (numericValue != null) {
-                  cellRange.setNumber(numericValue);
-                } else {
-                  cellRange.setText(cellText);
-                }
+                cellRange.setText(cellText);
+              }
 
-                // Apply Conditional Formatting for Data Rows (Index 6+)
-                if (i >= 6) {
-                  if (j == 2) { // Column C: System Setting
-                    if (cellText == "heat") {
-                      cellRange.cellStyle.backColor = '#ffe699';
-                      cellRange.cellStyle.fontColor = '#a51a18';
-                    } else if (cellText == "off") {
-                      cellRange.cellStyle.backColor = '#e6f1df';
-                      cellRange.cellStyle.fontColor = '#a51a18';
-                    }
-                  } else if (j == 3) { // Column D: System Mode
-                    if (cellText == "heatOff") {
-                      cellRange.cellStyle.backColor = '#ffe8ea';
-                    } else if (cellText == "heatStage1On") {
-                      cellRange.cellStyle.backColor = '#ffe5e8';
-                    }
-                  } else if (j == 4) { // Column E: Calendar Event
-                    if (cellText == "smartHome") {
-                      cellRange.cellStyle.backColor = '#f7c8ab';
-                    }
-                    if (cellText.length > 4) {
-                      hasLongCalendarContent = true;
-                    }
-                  } else if (j == 5) { // Column F: Program Mode
-                    if (cellText == "Sleep") {
-                      cellRange.cellStyle.backColor = '#a9d08e';
-                    } else if (cellText == "Away") {
-                      cellRange.cellStyle.backColor = '#cdace6';
-                    }
+              if (i >= 6) {
+                if (targetCol == 3) {
+                  if (cellText == "heat") {
+                    cellRange.cellStyle.backColor = '#ffe699';
+                    cellRange.cellStyle.fontColor = '#a51a18';
+                  } else if (cellText == "off") {
+                    cellRange.cellStyle.backColor = '#e6f1df';
+                    cellRange.cellStyle.fontColor = '#a51a18';
+                  } else if (cellText == "auto") {
+                    cellRange.cellStyle.backColor = '#CBC3E3';
+                  }
+                } else if (targetCol == 4) {
+                  if (cellText == "heatOff") {
+                    cellRange.cellStyle.backColor = '#ffe8ea';
+                  } else if (cellText == "heatStage1On") {
+                    cellRange.cellStyle.backColor = '#ffe5e8';
+                  }
+                } else if (targetCol == 5) {
+                  if (cellText == "smartHome") {
+                    cellRange.cellStyle.backColor = '#f7c8ab';
+                  }
+                  if (cellText.length > 4) {
+                    hasLongCalendarContent = true;
+                  }
+                } else if (targetCol == 6) {
+                  if (cellText == "Sleep") {
+                    cellRange.cellStyle.backColor = '#a9d08e';
+                  } else if (cellText == "Away") {
+                    cellRange.cellStyle.backColor = '#cdace6';
                   }
                 }
               }
             }
           }
+
+          if (targetCol > maxColumns) maxColumns = targetCol;
+          targetCol++;
         }
       }
 
-      // Auto-fit logic with length check for Calendar Event column
+      double calculatedHeight = (maxHeaderLength * 3.2).clamp(20.0, 120.0);
+      sheet.setRowHeightInPixels(6, calculatedHeight);
+
       for (int col = 1; col <= maxColumns; col++) {
         sheet.autoFitColumn(col);
         final xlsio.Range colRange = sheet.getRangeByIndex(6, col);
         final String headerText = colRange.getText() ?? "";
-
         if (headerText.contains("Calendar Event") && hasLongCalendarContent) {
           double autoWidth = colRange.columnWidth;
           colRange.columnWidth = autoWidth / 2;
@@ -221,18 +229,27 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       html.AnchorElement(href: url)
         ..setAttribute("download", downloadName)
         ..click();
-
       html.Url.revokeObjectUrl(url);
+
+      await analytics.logEvent(
+        name: 'process_file_success',
+      );
 
       setState(() => _statusMessage = "Conversion Successful!");
       await Future.delayed(const Duration(seconds: 3));
-
       setState(() {
-        _statusMessage = "Drag & Drop or Click to upload CSV";
+        _statusMessage = "Drag & Drop CSV Here \nor\n Click Here to Upload CSV";
         _isDragging = false;
         _isProcessing = false;
       });
     } catch (e) {
+      await analytics.logEvent(
+        name: 'process_file_error',
+        parameters: {
+          'file_name': fileName,
+          'error': e.toString(),
+        },
+      );
       setState(() => _statusMessage = "Error: ${e.toString()}");
     } finally {
       workbook?.dispose();
@@ -248,56 +265,84 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
         title: const Text("ecobee CSV Analyzer"),
         backgroundColor: Colors.blueAccent,
       ),
-      body: Center(
-        child: DropTarget(
-          onDragDone: (details) async {
-            if (details.files.isNotEmpty) {
-              final file = details.files.first;
-              final bytes = await file.readAsBytes();
-              await _processFile(bytes, file.name);
-            }
-          },
-          onDragEntered: (details) => setState(() => _isDragging = true),
-          onDragExited: (details) => setState(() => _isDragging = false),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: _pickFile,
-              borderRadius: BorderRadius.circular(24),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 250),
-                height: 350,
-                width: 550,
-                decoration: BoxDecoration(
-                  color: _isDragging ? Colors.blue.withOpacity(0.05) : Colors.white,
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(
-                    color: _isDragging ? Colors.blueAccent : Colors.grey.shade300,
-                    width: 2,
-                  ),
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    if (_isProcessing)
-                      const CircularProgressIndicator()
-                    else
-                      Icon(
-                        Icons.upload_file_rounded,
-                        size: 80,
-                        color: _isDragging ? Colors.blueAccent : Colors.blueGrey[200],
+      body: Column(
+        children: [
+          Expanded(
+            child: Center(
+              child: DropTarget(
+                onDragDone: (details) async {
+                  if (details.files.isNotEmpty) {
+                    final file = details.files.first;
+
+                    analytics.logEvent(
+                      name: 'file_dropped',
+                    );
+
+                    final bytes = await file.readAsBytes();
+                    await _processFile(bytes, file.name);
+                  }
+                },
+                onDragEntered: (details) => setState(() => _isDragging = true),
+                onDragExited: (details) => setState(() => _isDragging = false),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: _pickFile,
+                    borderRadius: BorderRadius.circular(24),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 250),
+                      height: 350,
+                      width: 550,
+                      decoration: BoxDecoration(
+                        color: _isDragging
+                            ? Colors.blue.withOpacity(0.05)
+                            : Colors.white,
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(
+                          color: _isDragging ? Colors.blueAccent : Colors.grey.shade300,
+                          width: 2,
+                        ),
                       ),
-                    const SizedBox(height: 24),
-                    Text(
-                      _statusMessage,
-                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          if (_isProcessing)
+                            const CircularProgressIndicator()
+                          else
+                            Icon(
+                              Icons.upload_file_rounded,
+                              size: 80,
+                              color: _isDragging ? Colors.blueAccent : Colors.blueGrey[200],
+                            ),
+                          const SizedBox(height: 24),
+                          Text(
+                            _statusMessage,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ],
+                  ),
                 ),
               ),
             ),
           ),
-        ),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 20.0),
+            child: Text(
+              "Developed by Jonathan Lam",
+              style: TextStyle(
+                color: Colors.blueGrey.shade400,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
