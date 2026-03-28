@@ -7,11 +7,19 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:desktop_drop/desktop_drop.dart';
+import 'package:flutter/services.dart';
 import 'package:syncfusion_flutter_xlsio/xlsio.dart' as xlsio;
 import 'package:csv/csv.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+
+  // ADD THIS: Pre-load the Material Icons font
+  final fontLoader = FontLoader('MaterialIcons');
+  await fontLoader.load();
+
+
   await Firebase.initializeApp(
     options: const FirebaseOptions(
       apiKey: "AIzaSyA9faf7iTLDrH9MHlqr7Ro6SjvSOhMYGlg",
@@ -44,10 +52,12 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
 
   bool _isDragging = false;
   bool _isProcessing = false;
-  String _statusMessage = "Drag & Drop CSV Here \nor\n Click Here to Upload CSV";
+  String _statusMessage =
+      "Drag & Drop CSV Here \nor\n Click Here to Upload CSV";
 
   void _pickFile() {
-    final html.FileUploadInputElement uploadInput = html.FileUploadInputElement();
+    final html.FileUploadInputElement uploadInput =
+        html.FileUploadInputElement();
     uploadInput.accept = '.csv';
     uploadInput.click();
 
@@ -56,9 +66,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       if (files != null && files.isNotEmpty) {
         final file = files[0];
 
-        analytics.logEvent(
-          name: 'file_picked_manually',
-        );
+        analytics.logEvent(name: 'file_picked_manually');
 
         final reader = html.FileReader();
         reader.readAsArrayBuffer(file);
@@ -76,9 +84,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       _statusMessage = "Processing CSV...";
     });
 
-    await analytics.logEvent(
-      name: 'process_file_start',
-    );
+    await analytics.logEvent(name: 'process_file_start');
 
     await Future.delayed(const Duration(milliseconds: 100));
 
@@ -134,7 +140,12 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
             }
 
             if (targetCol > 4) {
-              final xlsio.Range headerRange = sheet.getRangeByIndex(1, targetCol, 6, targetCol);
+              final xlsio.Range headerRange = sheet.getRangeByIndex(
+                1,
+                targetCol,
+                6,
+                targetCol,
+              );
               headerRange.merge();
               headerRange.setText(cellText);
               headerRange.cellStyle.rotation = 90;
@@ -149,8 +160,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
               cellRange.setText(cellText);
               if (hexColor != null) cellRange.cellStyle.backColor = hexColor;
             }
-          }
-          else if (i >= 6 || targetCol <= 4) {
+          } else if (i >= 6 || targetCol <= 4) {
             final cellRange = sheet.getRangeByIndex(i + 1, targetCol);
             if (i == 0 && j == 3) {
               cellRange.setText(cellText);
@@ -180,8 +190,11 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                     cellRange.cellStyle.backColor = '#ffe5e8';
                   }
                 } else if (targetCol == 5) {
-                  if (cellText == "smartHome") {
+                  if (cellText.contains("smartHome")) {
                     cellRange.cellStyle.backColor = '#f7c8ab';
+                  }
+                  else if(cellText.contains("smartAway")) {
+                    cellRange.cellStyle.backColor = '#d3b5e9';
                   }
                   if (cellText.length > 4) {
                     hasLongCalendarContent = true;
@@ -192,6 +205,10 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                   } else if (cellText == "Away") {
                     cellRange.cellStyle.backColor = '#cdace6';
                   }
+                  else if (cellText == "Home")
+                    {
+                      cellRange.cellStyle.backColor = '#bdd7ee';
+                    }
                 }
               }
             }
@@ -220,10 +237,15 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       }
 
       final List<int> outBytes = workbook.saveAsStream();
-      final blob = html.Blob([outBytes], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      final blob = html.Blob([
+        outBytes,
+      ], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       final url = html.Url.createObjectUrlFromBlob(blob);
 
-      String baseName = fileName.replaceAll(RegExp(r'\.(csv|xlsx)$', caseSensitive: false), '');
+      String baseName = fileName.replaceAll(
+        RegExp(r'\.(csv|xlsx)$', caseSensitive: false),
+        '',
+      );
       String downloadName = "$baseName(new).xlsx";
 
       html.AnchorElement(href: url)
@@ -231,9 +253,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
         ..click();
       html.Url.revokeObjectUrl(url);
 
-      await analytics.logEvent(
-        name: 'process_file_success',
-      );
+      await analytics.logEvent(name: 'process_file_success');
 
       setState(() => _statusMessage = "Conversion Successful!");
       await Future.delayed(const Duration(seconds: 3));
@@ -245,10 +265,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
     } catch (e) {
       await analytics.logEvent(
         name: 'process_file_error',
-        parameters: {
-          'file_name': fileName,
-          'error': e.toString(),
-        },
+        parameters: {'file_name': fileName, 'error': e.toString()},
       );
       setState(() => _statusMessage = "Error: ${e.toString()}");
     } finally {
@@ -274,9 +291,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                   if (details.files.isNotEmpty) {
                     final file = details.files.first;
 
-                    analytics.logEvent(
-                      name: 'file_dropped',
-                    );
+                    analytics.logEvent(name: 'file_dropped');
 
                     final bytes = await file.readAsBytes();
                     await _processFile(bytes, file.name);
@@ -299,7 +314,9 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                             : Colors.white,
                         borderRadius: BorderRadius.circular(24),
                         border: Border.all(
-                          color: _isDragging ? Colors.blueAccent : Colors.grey.shade300,
+                          color: _isDragging
+                              ? Colors.blueAccent
+                              : Colors.grey.shade300,
                           width: 2,
                         ),
                       ),
@@ -309,6 +326,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                           if (_isProcessing)
                             const CircularProgressIndicator()
                           else
+                          // In your build method:
                             Icon(
                               Icons.upload_file_rounded,
                               size: 80,
