@@ -14,11 +14,9 @@ import 'package:csv/csv.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-
-  // ADD THIS: Pre-load the Material Icons font
+  // Pre-load the Material Icons font to prevent missing icons on first load
   final fontLoader = FontLoader('MaterialIcons');
   await fontLoader.load();
-
 
   await Firebase.initializeApp(
     options: const FirebaseOptions(
@@ -52,12 +50,10 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
 
   bool _isDragging = false;
   bool _isProcessing = false;
-  String _statusMessage =
-      "Drag & Drop CSV Here \nor\n Click Here to Upload CSV";
+  String _statusMessage = "Drag & Drop CSV Here \nor\n Click to Upload";
 
   void _pickFile() {
-    final html.FileUploadInputElement uploadInput =
-        html.FileUploadInputElement();
+    final html.FileUploadInputElement uploadInput = html.FileUploadInputElement();
     uploadInput.accept = '.csv';
     uploadInput.click();
 
@@ -65,9 +61,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       final files = uploadInput.files;
       if (files != null && files.isNotEmpty) {
         final file = files[0];
-
         analytics.logEvent(name: 'file_picked_manually');
-
         final reader = html.FileReader();
         reader.readAsArrayBuffer(file);
         reader.onLoadEnd.listen((e) async {
@@ -83,11 +77,9 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       _isProcessing = true;
       _statusMessage = "Processing CSV...";
     });
-
     await analytics.logEvent(name: 'process_file_start');
 
     await Future.delayed(const Duration(milliseconds: 100));
-
     xlsio.Workbook? workbook;
 
     try {
@@ -140,12 +132,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
             }
 
             if (targetCol > 4) {
-              final xlsio.Range headerRange = sheet.getRangeByIndex(
-                1,
-                targetCol,
-                6,
-                targetCol,
-              );
+              final xlsio.Range headerRange = sheet.getRangeByIndex(1, targetCol, 6, targetCol);
               headerRange.merge();
               headerRange.setText(cellText);
               headerRange.cellStyle.rotation = 90;
@@ -192,28 +179,22 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                 } else if (targetCol == 5) {
                   if (cellText.contains("smartHome")) {
                     cellRange.cellStyle.backColor = '#f7c8ab';
-                  }
-                  else if(cellText.contains("smartAway")) {
+                  } else if (cellText.contains("smartAway")) {
                     cellRange.cellStyle.backColor = '#d3b5e9';
                   }
-                  if (cellText.length > 4) {
-                    hasLongCalendarContent = true;
-                  }
+                  if (cellText.length > 4) hasLongCalendarContent = true;
                 } else if (targetCol == 6) {
                   if (cellText == "Sleep") {
                     cellRange.cellStyle.backColor = '#a9d08e';
                   } else if (cellText == "Away") {
                     cellRange.cellStyle.backColor = '#cdace6';
+                  } else if (cellText == "Home") {
+                    cellRange.cellStyle.backColor = '#bdd7ee';
                   }
-                  else if (cellText == "Home")
-                    {
-                      cellRange.cellStyle.backColor = '#bdd7ee';
-                    }
                 }
               }
             }
           }
-
           if (targetCol > maxColumns) maxColumns = targetCol;
           targetCol++;
         }
@@ -232,20 +213,13 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
         }
       }
 
-      if (csvRows.length >= 7) {
-        sheet.getRangeByIndex(7, 1).freezePanes();
-      }
+      if (csvRows.length >= 7) sheet.getRangeByIndex(7, 1).freezePanes();
 
       final List<int> outBytes = workbook.saveAsStream();
-      final blob = html.Blob([
-        outBytes,
-      ], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      final blob = html.Blob([outBytes], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       final url = html.Url.createObjectUrlFromBlob(blob);
 
-      String baseName = fileName.replaceAll(
-        RegExp(r'\.(csv|xlsx)$', caseSensitive: false),
-        '',
-      );
+      String baseName = fileName.replaceAll(RegExp(r'\.(csv|xlsx)$', caseSensitive: false), '');
       String downloadName = "$baseName(new).xlsx";
 
       html.AnchorElement(href: url)
@@ -254,11 +228,10 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       html.Url.revokeObjectUrl(url);
 
       await analytics.logEvent(name: 'process_file_success');
-
       setState(() => _statusMessage = "Conversion Successful!");
       await Future.delayed(const Duration(seconds: 3));
       setState(() {
-        _statusMessage = "Drag & Drop CSV Here \nor\n Click Here to Upload CSV";
+        _statusMessage = "Drag & Drop CSV Here \nor\n Click to Upload";
         _isDragging = false;
         _isProcessing = false;
       });
@@ -274,93 +247,149 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
     }
   }
 
+  Widget _buildSectionCard({required String title, required List<Widget> children}) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.blueAccent,
+            ),
+          ),
+          const SizedBox(height: 15),
+          ...children,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTip(String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("• ", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(color: Colors.blueGrey.shade700, fontSize: 12, height: 1.4),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
-      appBar: AppBar(
-        title: const Text("ecobee CSV Analyzer"),
-        backgroundColor: Colors.blueAccent,
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: Center(
-              child: DropTarget(
-                onDragDone: (details) async {
-                  if (details.files.isNotEmpty) {
-                    final file = details.files.first;
-
-                    analytics.logEvent(name: 'file_dropped');
-
-                    final bytes = await file.readAsBytes();
-                    await _processFile(bytes, file.name);
-                  }
-                },
-                onDragEntered: (details) => setState(() => _isDragging = true),
-                onDragExited: (details) => setState(() => _isDragging = false),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: _pickFile,
-                    borderRadius: BorderRadius.circular(24),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 250),
-                      height: 350,
-                      width: 550,
-                      decoration: BoxDecoration(
-                        color: _isDragging
-                            ? Colors.blue.withOpacity(0.05)
-                            : Colors.white,
-                        borderRadius: BorderRadius.circular(24),
-                        border: Border.all(
-                          color: _isDragging
-                              ? Colors.blueAccent
-                              : Colors.grey.shade300,
-                          width: 2,
-                        ),
-                      ),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          if (_isProcessing)
-                            const CircularProgressIndicator()
-                          else
-                          // In your build method:
-                            Icon(
-                              Icons.upload_file_rounded,
-                              size: 80,
-                              color: _isDragging ? Colors.blueAccent : Colors.blueGrey[200],
-                            ),
-                          const SizedBox(height: 24),
-                          Text(
-                            _statusMessage,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w600,
-                            ),
+      backgroundColor: const Color(0xFFF8F9FB),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 900),
+            child: Column(
+              children: [
+                _buildSectionCard(
+                  title: "About the Analyzer",
+                  children: [
+                    Text(
+                      "A web app to enhance thermostat system monitoring reports to become more readable and efficiently diagnose issues.",
+                      style: TextStyle(color: Colors.blueGrey.shade600, fontSize: 12),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                DropTarget(
+                  onDragDone: (details) async {
+                    if (details.files.isNotEmpty) {
+                      final file = details.files.first;
+                      analytics.logEvent(name: 'file_dropped');
+                      final bytes = await file.readAsBytes();
+                      await _processFile(bytes, file.name);
+                    }
+                  },
+                  onDragEntered: (details) => setState(() => _isDragging = true),
+                  onDragExited: (details) => setState(() => _isDragging = false),
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: GestureDetector(
+                      onTap: _pickFile,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        height: 300,
+                        width: 600,
+                        decoration: BoxDecoration(
+                          color: _isDragging ? Colors.blue.withOpacity(0.05) : Colors.white,
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(
+                            color: _isDragging ? Colors.blueAccent : Colors.blueGrey.shade200,
+                            width: 2,
                           ),
-                        ],
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            if (_isProcessing)
+                              const CircularProgressIndicator()
+                            else
+                              Icon(
+                                Icons.upload_file_rounded,
+                                size: 80,
+                                color: _isDragging ? Colors.blueAccent : Colors.blueGrey[200],
+                              ),
+                            const SizedBox(height: 20),
+                            Text(
+                              _statusMessage,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
+                const SizedBox(height: 24),
+                _buildSectionCard(
+                  title: "User Tips & How to Use",
+                  children: [
+                    _buildTip("Upload your ecobee CSV Temperature Report by dragging it into the box above or clicking the box to browse."),
+                    _buildTip("To locate your CSV file more easily, sort your folder by 'Date Modified' to see your most recent downloads first."),
+                    _buildTip("The app automatically saves your report as an .xlsx file instead of a .csv file. To have future reports open instantly, right-click the file in Chrome's 'Recent Download History' and select 'Always open files of this type.'"),
+                    _buildTip("This web app is updated occasionally. To ensure you are seeing the latest version, you may need to clear your browser cache. On Chrome for Windows, press CTRL + F5 for a hard refresh."),
+                    _buildTip("Please reach out to Jonathan Lam on Slack to report any issues or to provide feedback."),
+                  ],
+                ),
+                const SizedBox(height: 32),
+                Text(
+                  "Developed by Jonathan Lam",
+                  style: TextStyle(color: Colors.blueGrey.shade400, fontSize: 13, fontWeight: FontWeight.w500),
+                ),
+              ],
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.only(bottom: 20.0),
-            child: Text(
-              "Developed by Jonathan Lam",
-              style: TextStyle(
-                color: Colors.blueGrey.shade400,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
