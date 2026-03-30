@@ -10,9 +10,15 @@ import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/services.dart';
 import 'package:syncfusion_flutter_xlsio/xlsio.dart' as xlsio;
 import 'package:csv/csv.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:firebase_database/firebase_database.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize package info to get the version
+  final info = await PackageInfo.fromPlatform();
+  final String appVersion = info.version;
 
   // Pre-load the Material Icons font to prevent missing icons on first load
   final fontLoader = FontLoader('MaterialIcons');
@@ -30,16 +36,20 @@ void main() async {
     ),
   );
   runApp(
-    const MaterialApp(
+    MaterialApp(
       title: "ecobee CSV Analyzer",
-      home: ExcelProcessorApp(),
+      home: ExcelProcessorApp(version: appVersion),
       debugShowCheckedModeBanner: false,
     ),
   );
 }
 
 class ExcelProcessorApp extends StatefulWidget {
-  const ExcelProcessorApp({super.key});
+  final String version; // Add this line
+  const ExcelProcessorApp({
+    super.key,
+    required this.version,
+  }); // Add version here
 
   @override
   State<ExcelProcessorApp> createState() => _ExcelProcessorAppState();
@@ -52,8 +62,34 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
   bool _isProcessing = false;
   String _statusMessage = "Drag & Drop CSV Here \nor\n Click to Upload";
 
+  String? _latestVersion;
+  late DatabaseReference _versionRef;
+
+  @override
+  void initState() {
+    super.initState();
+    // Initialize the reference to your specific database URL and 'version' key
+    _versionRef = FirebaseDatabase.instanceFor(
+      app: Firebase.app(),
+      databaseURL: 'https://ecobee-csv-analyzer-default-rtdb.firebaseio.com/',
+    ).ref('version');
+
+    // Listen to changes in real-time
+    _versionRef.onValue.listen((DatabaseEvent event) {
+      final data = event.snapshot.value;
+      if (data != null && mounted) {
+        setState(() {
+          _latestVersion = data.toString();
+        });
+      }
+    });
+  }
+
+
+
   void _pickFile() {
-    final html.FileUploadInputElement uploadInput = html.FileUploadInputElement();
+    final html.FileUploadInputElement uploadInput =
+        html.FileUploadInputElement();
     uploadInput.accept = '.csv';
     uploadInput.click();
 
@@ -132,7 +168,12 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
             }
 
             if (targetCol > 4) {
-              final xlsio.Range headerRange = sheet.getRangeByIndex(1, targetCol, 6, targetCol);
+              final xlsio.Range headerRange = sheet.getRangeByIndex(
+                1,
+                targetCol,
+                6,
+                targetCol,
+              );
               headerRange.merge();
               headerRange.setText(cellText);
               headerRange.cellStyle.rotation = 90;
@@ -153,6 +194,25 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
               cellRange.setText(cellText);
             } else {
               final double? numericValue = double.tryParse(cellText);
+
+              if (numericValue != null) {
+                cellRange.setNumber(numericValue);
+                final String currentHeader = sheet.getRangeByIndex(6, targetCol).getText()?.trim() ?? "";
+                if (currentHeader == "Heat Stage 1 (sec)" && numericValue > 0) {
+                  cellRange.cellStyle.backColor = '#ffe5e8';
+                }
+               else if (currentHeader == "Fan (sec)" && numericValue > 0) {
+                  cellRange.cellStyle.backColor = '#c6e0b4';
+                }
+                else if (currentHeader == "Cool Stage 1 (sec)" && numericValue > 0) {
+                  cellRange.cellStyle.backColor = '#cadff2';
+                }
+
+              } else {
+                cellRange.setText(cellText);
+              }
+
+
               if (numericValue != null) {
                 cellRange.setNumber(numericValue);
               } else {
@@ -161,6 +221,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
 
               if (i >= 6) {
                 if (targetCol == 3) {
+                  //System Setting
                   if (cellText == "heat") {
                     cellRange.cellStyle.backColor = '#ffe699';
                     cellRange.cellStyle.fontColor = '#a51a18';
@@ -169,21 +230,46 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                     cellRange.cellStyle.fontColor = '#a51a18';
                   } else if (cellText == "auto") {
                     cellRange.cellStyle.backColor = '#CBC3E3';
+                  } else if (cellText == "cool") {
+                    cellRange.cellStyle.backColor = '#8ea9db';
                   }
                 } else if (targetCol == 4) {
+                  //System Mode
                   if (cellText == "heatOff") {
                     cellRange.cellStyle.backColor = '#ffe8ea';
                   } else if (cellText == "heatStage1On") {
                     cellRange.cellStyle.backColor = '#ffe5e8';
+                  }  else if (cellText == "heatStage1Off") {
+                    cellRange.cellStyle.backColor = '#ffe8eb';
+                  } else if (cellText == "compressorHeatStage1On") {
+                    cellRange.cellStyle.backColor = '#ffe5e8';
+                  } else if (cellText == "compressorHeatStage1Off") {//not sure if this exist
+                    cellRange.cellStyle.backColor = '#ffe8eb';
+                  }
+                  else if (cellText == "compressorHeatOff") {
+                    cellRange.cellStyle.backColor = '#ffe8eb';
+                  }else if (cellText == "compressorCoolStage1On") {
+                    cellRange.cellStyle.backColor = '#cadff2';
+                  }  else if (cellText == "compressorCoolOff") {
+                    cellRange.cellStyle.backColor = '#c0cfea';
                   }
                 } else if (targetCol == 5) {
+                  //Calendar Event
                   if (cellText.contains("smartHome")) {
                     cellRange.cellStyle.backColor = '#f7c8ab';
                   } else if (cellText.contains("smartAway")) {
                     cellRange.cellStyle.backColor = '#d3b5e9';
+                  } else if (cellText.contains("hold")) {
+                    cellRange.cellStyle.backColor = '#c0d5ab';
+                  } else if (cellText.contains("auto")) {
+                    cellRange.cellStyle.backColor = '#a4fef5';
+                  }
+                  else if (cellText.contains("(SmartRecovery)")) {
+                    cellRange.cellStyle.backColor = '#c6e0b4';
                   }
                   if (cellText.length > 4) hasLongCalendarContent = true;
                 } else if (targetCol == 6) {
+                  //Program Mode
                   if (cellText == "Sleep") {
                     cellRange.cellStyle.backColor = '#a9d08e';
                   } else if (cellText == "Away") {
@@ -212,14 +298,19 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
           colRange.columnWidth = autoWidth / 2;
         }
       }
-
+      sheet.getRangeByIndex(1, 4).cellStyle.backColor = '#ffff00';
       if (csvRows.length >= 7) sheet.getRangeByIndex(7, 1).freezePanes();
 
       final List<int> outBytes = workbook.saveAsStream();
-      final blob = html.Blob([outBytes], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      final blob = html.Blob([
+        outBytes,
+      ], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       final url = html.Url.createObjectUrlFromBlob(blob);
 
-      String baseName = fileName.replaceAll(RegExp(r'\.(csv|xlsx)$', caseSensitive: false), '');
+      String baseName = fileName.replaceAll(
+        RegExp(r'\.(csv|xlsx)$', caseSensitive: false),
+        '',
+      );
       String downloadName = "$baseName(new).xlsx";
 
       html.AnchorElement(href: url)
@@ -247,7 +338,10 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
     }
   }
 
-  Widget _buildSectionCard({required String title, required List<Widget> children}) {
+  Widget _buildSectionCard({
+    required String title,
+    required List<Widget> children,
+  }) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(24),
@@ -287,11 +381,21 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text("• ", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+          const Text(
+            "• ",
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: Colors.blueAccent,
+            ),
+          ),
           Expanded(
             child: Text(
               text,
-              style: TextStyle(color: Colors.blueGrey.shade700, fontSize: 12, height: 1.4),
+              style: TextStyle(
+                color: Colors.blueGrey.shade700,
+                fontSize: 12,
+                height: 1.4,
+              ),
             ),
           ),
         ],
@@ -301,6 +405,21 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
 
   @override
   Widget build(BuildContext context) {
+    // --- NEW: Logic to determine the version display text and color ---
+    String displayVersionText = "Version ${widget.version}";
+    Color versionColor = Colors.blueGrey.shade300;
+    FontWeight versionWeight = FontWeight.w400;
+
+    if (_latestVersion != null) {
+      if (widget.version == _latestVersion) {
+        displayVersionText = "Version ${widget.version} (latest)";
+        versionColor = Colors.green.shade600; // Green to indicate it is up to date
+      } else {
+        displayVersionText = "Version ${widget.version} (Requires an update)";
+        versionColor = Colors.redAccent; // Red to highlight the need for a refresh
+        versionWeight = FontWeight.w600;
+      }
+    }
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FB),
       body: SingleChildScrollView(
@@ -310,12 +429,30 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
             constraints: const BoxConstraints(maxWidth: 900),
             child: Column(
               children: [
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 8.0),
+                    child: SelectableText(
+                      displayVersionText, // Uses the dynamic text
+                      style: TextStyle(
+                        color: versionColor, // Uses the dynamic color
+                        fontSize: 12, // Slightly larger for better visibility
+                        fontWeight: versionWeight, // Bolder if an update is required
+                      ),
+                    ),
+                  ),
+                ),
+
                 _buildSectionCard(
-                  title: "About the Analyzer",
+                  title: "About CSV Analyzer",
                   children: [
                     Text(
-                      "A web app to enhance thermostat system monitoring reports to become more readable and efficiently diagnose issues.",
-                      style: TextStyle(color: Colors.blueGrey.shade600, fontSize: 12),
+                      "A web app designed to transform raw ecobee thermostat system monitoring data into a clear and readable report for faster and more accurate diagnostics.",
+                      style: TextStyle(
+                        color: Colors.blueGrey.shade600,
+                        fontSize: 12,
+                      ),
                     ),
                   ],
                 ),
@@ -329,8 +466,10 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                       await _processFile(bytes, file.name);
                     }
                   },
-                  onDragEntered: (details) => setState(() => _isDragging = true),
-                  onDragExited: (details) => setState(() => _isDragging = false),
+                  onDragEntered: (details) =>
+                      setState(() => _isDragging = true),
+                  onDragExited: (details) =>
+                      setState(() => _isDragging = false),
                   child: MouseRegion(
                     cursor: SystemMouseCursors.click,
                     child: GestureDetector(
@@ -340,10 +479,14 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                         height: 300,
                         width: 600,
                         decoration: BoxDecoration(
-                          color: _isDragging ? Colors.blue.withOpacity(0.05) : Colors.white,
+                          color: _isDragging
+                              ? Colors.blue.withOpacity(0.05)
+                              : Colors.white,
                           borderRadius: BorderRadius.circular(24),
                           border: Border.all(
-                            color: _isDragging ? Colors.blueAccent : Colors.blueGrey.shade200,
+                            color: _isDragging
+                                ? Colors.blueAccent
+                                : Colors.blueGrey.shade200,
                             width: 2,
                           ),
                         ),
@@ -356,13 +499,18 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                               Icon(
                                 Icons.upload_file_rounded,
                                 size: 80,
-                                color: _isDragging ? Colors.blueAccent : Colors.blueGrey[200],
+                                color: _isDragging
+                                    ? Colors.blueAccent
+                                    : Colors.blueGrey[200],
                               ),
                             const SizedBox(height: 20),
                             Text(
                               _statusMessage,
                               textAlign: TextAlign.center,
-                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ],
                         ),
@@ -374,18 +522,33 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                 _buildSectionCard(
                   title: "User Tips & How to Use",
                   children: [
-                    _buildTip("Upload your ecobee CSV Temperature Report by dragging it into the box above or clicking the box to browse."),
-                    _buildTip("To locate your CSV file more easily, sort your folder by 'Date Modified' to see your most recent downloads first."),
-                    _buildTip("The app automatically saves your report as an .xlsx file instead of a .csv file. To have future reports open instantly, right-click the file in Chrome's 'Recent Download History' and select 'Always open files of this type.'"),
-                    _buildTip("This web app is updated occasionally. To ensure you are seeing the latest version, you may need to clear your browser cache. On Chrome for Windows, press CTRL + F5 for a hard refresh."),
-                    _buildTip("Please reach out to Jonathan Lam on Slack to report any issues or to provide feedback."),
+                    _buildTip(
+                      "Upload your .csv Temperature Report by dragging it into the box above or clicking the box to browse the .csv file.",
+                    ),
+                    _buildTip(
+                      "To locate your .csv file more easily, sort your folder by 'Date Modified' to see your most recent downloads first.",
+                    ),
+                    _buildTip(
+                      "Please note the web app saves the report as a .xlsx file instead of a .csv file.\nTo have future .xlsx reports open automatically after processing, right-click the .xlsx file in Chrome's 'Recent Download History' and select 'Always open files of this type'.\nYou can also disable this setting for .csv files to prevent the unformatted data from opening automatically from AP2.",
+                    ),
+                    _buildTip(
+                      "This web app is updated occasionally. To ensure you are using the latest version, you may need to clear your browser cache or at least for this webpage by pressing CTRL + F5 (Chrome for Windows).",
+                    ),
+                    _buildTip(
+                      "Please reach out to Jonathan Lam on Slack to report any issues or to provide feedback.",
+                    ),
                   ],
                 ),
                 const SizedBox(height: 32),
                 Text(
                   "Developed by Jonathan Lam",
-                  style: TextStyle(color: Colors.blueGrey.shade400, fontSize: 13, fontWeight: FontWeight.w500),
+                  style: TextStyle(
+                    color: Colors.blueGrey.shade400,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
+                const SizedBox(height: 4),
               ],
             ),
           ),
