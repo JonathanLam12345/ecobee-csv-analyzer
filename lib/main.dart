@@ -20,6 +20,9 @@ void main() async {
   final info = await PackageInfo.fromPlatform();
   final String appVersion = info.version;
 
+
+
+
   // Pre-load the Material Icons font to prevent missing icons on first load
   final fontLoader = FontLoader('MaterialIcons');
   await fontLoader.load();
@@ -402,6 +405,26 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       ),
     );
   }
+  bool _isUpToDate(String local, String remote) {
+    try {
+      List<int> localParts = local.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+      List<int> remoteParts = remote.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+
+      int maxLength = localParts.length > remoteParts.length ? localParts.length : remoteParts.length;
+
+      for (int i = 0; i < maxLength; i++) {
+        int localSegment = i < localParts.length ? localParts[i] : 0;
+        int remoteSegment = i < remoteParts.length ? remoteParts[i] : 0;
+
+        if (localSegment > remoteSegment) return true; // Local is ahead
+        if (localSegment < remoteSegment) return false; // Local is behind
+      }
+      return true; // Versions are equal
+    } catch (e) {
+      return local == remote; // Fallback to simple string check on error
+    }
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -411,15 +434,19 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
     FontWeight versionWeight = FontWeight.w400;
 
     if (_latestVersion != null) {
-      if (widget.version == _latestVersion) {
+      bool upToDate = _isUpToDate(widget.version, _latestVersion!);
+
+      if (upToDate) {
         displayVersionText = "Version ${widget.version} (latest)";
-        versionColor = Colors.green.shade600; // Green to indicate it is up to date
+        versionColor = Colors.green.shade600;
+        versionWeight = FontWeight.w400;
       } else {
         displayVersionText = "Version ${widget.version} (Requires an update)";
-        versionColor = Colors.redAccent; // Red to highlight the need for a refresh
+        versionColor = Colors.redAccent;
         versionWeight = FontWeight.w600;
       }
     }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FB),
       body: SingleChildScrollView(
