@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
-
-// ignore: avoid_web_libraries_in_flutter
+import 'package:url_launcher/url_launcher.dart';
 import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -12,6 +11,10 @@ import 'package:syncfusion_flutter_xlsio/xlsio.dart' as xlsio;
 import 'package:csv/csv.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:firebase_database/firebase_database.dart';
+/*
+I would like to check if the thermostat ever rebooted. A black row starting from row #7 indicates the thermostat has no power.
+if two or more consuective rows are blank, it's still con
+*/
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,9 +22,6 @@ void main() async {
   // Initialize package info to get the version
   final info = await PackageInfo.fromPlatform();
   final String appVersion = info.version;
-
-
-
 
   // Pre-load the Material Icons font to prevent missing icons on first load
   final fontLoader = FontLoader('MaterialIcons');
@@ -64,6 +64,8 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
   bool _isDragging = false;
   bool _isProcessing = false;
   String _statusMessage = "Drag & Drop CSV Here \nor\n Click to Upload";
+  double? _totalFanHours; // New variable to store total fan hours
+  String? _serialNumber;
 
   String? _latestVersion;
   late DatabaseReference _versionRef;
@@ -87,8 +89,6 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       }
     });
   }
-
-
 
   void _pickFile() {
     final html.FileUploadInputElement uploadInput =
@@ -134,6 +134,12 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
 
       workbook = xlsio.Workbook();
       final xlsio.Worksheet sheet = workbook.worksheets[0];
+      int? fanSecIndex;
+      double totalFanSeconds = 0;
+
+      if (csvRows.isNotEmpty && csvRows[0].length >= 4) {
+        _serialNumber = csvRows[0][3].toString();
+      }
 
       List<int> columnsToSkip = [];
       if (csvRows.length >= 6) {
@@ -143,8 +149,29 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
           if (headerText.contains("wind speed (km/h)")) {
             columnsToSkip.add(j);
           }
+          if (headerRow[j].toString().trim() == "Fan (sec)") {
+            fanSecIndex = j;
+            break;
+          }
         }
       }
+
+      // Sum values from the "Fan (sec)" column starting from data rows (index 6)
+      if (fanSecIndex != null) {
+        for (int i = 6; i < csvRows.length; i++) {
+          if (fanSecIndex < csvRows[i].length) {
+            final double? val = double.tryParse(
+              csvRows[i][fanSecIndex].toString(),
+            );
+            if (val != null) totalFanSeconds += val;
+          }
+        }
+      }
+      // At the end of the successful processing, update the state
+      setState(() {
+        _totalFanHours = totalFanSeconds / 3600; // Convert seconds to hours
+        _statusMessage = "Conversion Successful!";
+      });
 
       int maxColumns = 0;
       double maxHeaderLength = 0;
@@ -200,21 +227,19 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
 
               if (numericValue != null) {
                 cellRange.setNumber(numericValue);
-                final String currentHeader = sheet.getRangeByIndex(6, targetCol).getText()?.trim() ?? "";
+                final String currentHeader =
+                    sheet.getRangeByIndex(6, targetCol).getText()?.trim() ?? "";
                 if (currentHeader == "Heat Stage 1 (sec)" && numericValue > 0) {
                   cellRange.cellStyle.backColor = '#ffe5e8';
-                }
-               else if (currentHeader == "Fan (sec)" && numericValue > 0) {
+                } else if (currentHeader == "Fan (sec)" && numericValue > 0) {
                   cellRange.cellStyle.backColor = '#c6e0b4';
-                }
-                else if (currentHeader == "Cool Stage 1 (sec)" && numericValue > 0) {
+                } else if (currentHeader == "Cool Stage 1 (sec)" &&
+                    numericValue > 0) {
                   cellRange.cellStyle.backColor = '#cadff2';
                 }
-
               } else {
                 cellRange.setText(cellText);
               }
-
 
               if (numericValue != null) {
                 cellRange.setNumber(numericValue);
@@ -242,18 +267,18 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                     cellRange.cellStyle.backColor = '#ffe8ea';
                   } else if (cellText == "heatStage1On") {
                     cellRange.cellStyle.backColor = '#ffe5e8';
-                  }  else if (cellText == "heatStage1Off") {
+                  } else if (cellText == "heatStage1Off") {
                     cellRange.cellStyle.backColor = '#ffe8eb';
                   } else if (cellText == "compressorHeatStage1On") {
                     cellRange.cellStyle.backColor = '#ffe5e8';
-                  } else if (cellText == "compressorHeatStage1Off") {//not sure if this exist
+                  } else if (cellText == "compressorHeatStage1Off") {
+                    //not sure if this exist
                     cellRange.cellStyle.backColor = '#ffe8eb';
-                  }
-                  else if (cellText == "compressorHeatOff") {
+                  } else if (cellText == "compressorHeatOff") {
                     cellRange.cellStyle.backColor = '#ffe8eb';
-                  }else if (cellText == "compressorCoolStage1On") {
+                  } else if (cellText == "compressorCoolStage1On") {
                     cellRange.cellStyle.backColor = '#cadff2';
-                  }  else if (cellText == "compressorCoolOff") {
+                  } else if (cellText == "compressorCoolOff") {
                     cellRange.cellStyle.backColor = '#c0cfea';
                   }
                 } else if (targetCol == 5) {
@@ -266,8 +291,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                     cellRange.cellStyle.backColor = '#c0d5ab';
                   } else if (cellText.contains("auto")) {
                     cellRange.cellStyle.backColor = '#a4fef5';
-                  }
-                  else if (cellText.contains("(SmartRecovery)")) {
+                  } else if (cellText.contains("(SmartRecovery)")) {
                     cellRange.cellStyle.backColor = '#c6e0b4';
                   }
                   if (cellText.length > 4) hasLongCalendarContent = true;
@@ -341,76 +365,20 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
     }
   }
 
-  Widget _buildSectionCard({
-    required String title,
-    required List<Widget> children,
-  }) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.blueAccent,
-            ),
-          ),
-          const SizedBox(height: 15),
-          ...children,
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTip(String text) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6.0),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            "• ",
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Colors.blueAccent,
-            ),
-          ),
-          Expanded(
-            child: Text(
-              text,
-              style: TextStyle(
-                color: Colors.blueGrey.shade700,
-                fontSize: 12,
-                height: 1.4,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
   bool _isUpToDate(String local, String remote) {
     try {
-      List<int> localParts = local.split('.').map((e) => int.tryParse(e) ?? 0).toList();
-      List<int> remoteParts = remote.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+      List<int> localParts = local
+          .split('.')
+          .map((e) => int.tryParse(e) ?? 0)
+          .toList();
+      List<int> remoteParts = remote
+          .split('.')
+          .map((e) => int.tryParse(e) ?? 0)
+          .toList();
 
-      int maxLength = localParts.length > remoteParts.length ? localParts.length : remoteParts.length;
+      int maxLength = localParts.length > remoteParts.length
+          ? localParts.length
+          : remoteParts.length;
 
       for (int i = 0; i < maxLength; i++) {
         int localSegment = i < localParts.length ? localParts[i] : 0;
@@ -425,7 +393,6 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
     }
   }
 
-
   @override
   Widget build(BuildContext context) {
     // --- NEW: Logic to determine the version display text and color ---
@@ -435,7 +402,6 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
 
     if (_latestVersion != null) {
       bool upToDate = _isUpToDate(widget.version, _latestVersion!);
-
       if (upToDate) {
         displayVersionText = "Version ${widget.version} (latest)";
         versionColor = Colors.green.shade600;
@@ -448,7 +414,10 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
     }
 
     return Scaffold(
+      appBar: _buildConsistentAppBar(context, "Home"),
       backgroundColor: const Color(0xFFF8F9FB),
+
+      // ... (Rest of your SingleChildScrollView body)
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
         child: Center(
@@ -465,12 +434,14 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                       style: TextStyle(
                         color: versionColor, // Uses the dynamic color
                         fontSize: 12, // Slightly larger for better visibility
-                        fontWeight: versionWeight, // Bolder if an update is required
+                        fontWeight:
+                            versionWeight, // Bolder if an update is required
                       ),
                     ),
                   ),
                 ),
 
+                // ... (The rest of your existing body code continues here) ...
                 _buildSectionCard(
                   title: "About CSV Analyzer",
                   children: [
@@ -546,26 +517,22 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                _buildSectionCard(
-                  title: "User Tips & How to Use",
-                  children: [
-                    _buildTip(
-                      "Upload your .csv Temperature Report by dragging it into the box above or clicking the box to browse the .csv file.",
-                    ),
-                    _buildTip(
-                      "To locate your .csv file more easily, sort your folder by 'Date Modified' to see your most recent downloads first.",
-                    ),
-                    _buildTip(
-                      "Please note the web app saves the report as a .xlsx file instead of a .csv file.\nTo have future .xlsx reports open automatically after processing, right-click the .xlsx file in Chrome's 'Recent Download History' and select 'Always open files of this type'.\nYou can also disable this setting for .csv files to prevent the unformatted data from opening automatically from AP2.",
-                    ),
-                    _buildTip(
-                      "This web app is updated occasionally. To ensure you are using the latest version, you may need to clear your browser cache or at least for this webpage by pressing CTRL + F5 (Chrome for Windows).",
-                    ),
-                    _buildTip(
-                      "Please reach out to Jonathan Lam on Slack to report any issues or to provide feedback.",
-                    ),
-                  ],
-                ),
+
+                // --- NEW: Summary Section ---
+                if (_totalFanHours != null || _serialNumber != null)
+                  _buildSectionCard(
+                    title: "System Runtime Summary",
+                    children: [
+                      if (_serialNumber != null)
+                        _buildTip("Thermostat Serial Number: $_serialNumber"),
+                      if (_totalFanHours != null)
+                        _buildTip(
+                          "Total Fan Runtime: ${_totalFanHours!.toStringAsFixed(2)} hours",
+                        ),
+                    ],
+                  ),
+
+                // ----------------------------
                 const SizedBox(height: 32),
                 Text(
                   "Developed by Jonathan Lam",
@@ -584,3 +551,309 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
     );
   }
 }
+
+Widget _buildSectionCard({
+  required String title,
+  required List<Widget> children,
+}) {
+  return Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(24),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(20),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.03),
+          blurRadius: 10,
+          offset: const Offset(0, 4),
+        ),
+      ],
+      border: Border.all(color: Colors.grey.shade200),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: Colors.blueAccent,
+          ),
+        ),
+        const SizedBox(height: 15),
+        ...children,
+      ],
+    ),
+  );
+}
+
+Widget _buildTip(String text) {
+  return Padding(
+    padding: const EdgeInsets.symmetric(vertical: 6.0),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          "• ",
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: Colors.blueAccent,
+          ),
+        ),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(
+              color: Colors.blueGrey.shade700,
+              fontSize: 12,
+              height: 1.4,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+AppBar _buildConsistentAppBar(BuildContext context, String currentPage) {
+  // Helper to build the stylized nav button with high-visibility UX
+  Widget navButton(String label, String pageId, VoidCallback onPressed) {
+    bool isActive = currentPage == pageId;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+      child: TextButton(
+        onPressed: isActive ? null : onPressed,
+        style: TextButton.styleFrom(
+          // Active state gets a subtle background capsule
+          backgroundColor: isActive
+              ? Colors.white.withOpacity(0.15)
+              : Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                letterSpacing: 0.8,
+                // Bold text for active page [cite: 138]
+                fontWeight: isActive ? FontWeight.bold : FontWeight.w400,
+              ),
+            ),
+            // High-visibility highlight bar
+            if (isActive)
+              Container(
+                margin: const EdgeInsets.only(top: 4),
+                // FIXED: Used .only instead of .top
+                height: 3,
+                width: 24,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(2),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.white.withOpacity(0.5),
+                      blurRadius: 4,
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  return AppBar(
+    title: const Text(
+      "",
+      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+    ),
+    backgroundColor: Colors.blue,
+    // Primary blue color [cite: 134]
+    foregroundColor: Colors.white,
+    // White text/icons [cite: 134]
+    elevation: 4,
+    automaticallyImplyLeading: false,
+
+    // Removes the back arrow [cite: 134]
+
+    // Everything in actions is right-aligned by default
+
+    // ... inside _buildConsistentAppBar actions list ...
+    actions: [
+      navButton("HOME", "Home", () {
+        // Check if we are currently on the Info page
+        if (currentPage == "Info") {
+          // Simply pop the current page to reveal the Home page underneath
+          // This preserves all the state/data on the Home screen
+          Navigator.pop(context);
+        }
+      }),
+      navButton("How To Use", "Info", () {
+        // Navigates to Info page with NO animation
+        // The Home page stays alive in the background
+        Navigator.push(
+          context,
+          PageRouteBuilder(
+            pageBuilder: (context, anim1, anim2) => const HowToUsePage(),
+            transitionDuration: Duration.zero,
+            reverseTransitionDuration: Duration.zero,
+          ),
+        );
+      }),
+      navButton("Privacy Policy", "privacy", () {
+        Navigator.push(
+          context,
+          PageRouteBuilder(
+            pageBuilder: (context, anim1, anim2) => const PrivacyPolicyPage(),
+            transitionDuration: Duration.zero,
+            reverseTransitionDuration: Duration.zero,
+          ),
+        );
+      }),
+      const SizedBox(width: 12),
+    ],
+  );
+}
+
+class HowToUsePage extends StatelessWidget {
+  const HowToUsePage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FB),
+      appBar: _buildConsistentAppBar(context, "Info"),
+      // Added SingleChildScrollView and Padding to match the main page layout
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
+        child: Center(
+          child: ConstrainedBox(
+            // Constraints force the card to stay 900px wide, making the border visible
+            constraints: const BoxConstraints(maxWidth: 900),
+            child: _buildSectionCard(
+              title: "User Tips & How to Use",
+              children: [
+                _buildTip(
+                  "Upload your .csv Temperature Report by dragging it into the box above or clicking the box to browse the .csv file.",
+                ),
+                _buildTip(
+                  "To locate your .csv file more easily, sort your folder by 'Date Modified' to see your most recent downloads first.",
+                ),
+                _buildTip(
+                  "Please note the web app saves the report as a .xlsx file instead of a .csv file.\nTo have future .xlsx reports open automatically after processing, right-click the .xlsx file in Chrome's 'Recent Download History' and select 'Always open files of this type'.\nYou can also disable this setting for .csv files to prevent the unformatted data from opening automatically from AP2.",
+                ),
+                _buildTip(
+                  "This web app is updated occasionally. To ensure you are using the latest version, you may need to clear your browser cache or at least for this webpage by pressing CTRL + F5 (Chrome for Windows).",
+                ),
+                _buildTip(
+                  "Please reach out to Jonathan Lam on Slack to report any issues or to provide feedback.",
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+
+class PrivacyPolicyPage extends StatelessWidget {
+  const PrivacyPolicyPage({super.key});
+
+  Future<void> _launchGitHub() async {
+    final Uri url = Uri.parse(
+      'https://github.com/JonathanLam12345/ecobee-csv-analyzer',
+    );
+
+    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+      throw 'Could not launch $url';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FB),
+      appBar: _buildConsistentAppBar(context, "privacy"),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 900),
+            child: _buildSectionCard(
+              title: "Privacy Policy",
+              children: [
+                const Text(
+                  '''
+This web app is built as a simple tool to help improve performance and make work easier for the team.
+
+Information Collection:
+We do not collect or store any personal information from users. Anything you use or enter on this website is not saved in a database or kept anywhere.
+
+How the App Works:
+For the CSV formatter feature, it reads thermostat reports, formats them according to requirements, and automatically saves the final file as an XLSX file onto the user's computer.
+
+This web application is connected to a database only to:
+- Retrieve the most up-to-date version number
+- Make sure users are always using the latest version of the tool
+
+Purpose of the Web App:
+This website is only meant to be a work tool. It is designed to:
+- Help improve productivity
+- Support team workflows
+- Make tasks easier and more efficient
+
+Feedback:
+Team members can give feedback or suggestions to improve the app.
+
+Data Security:
+No personal data is stored, so nothing is collected or shared.
+                  ''',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.black87,
+                    height: 1.5,
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                const Text(
+                  "GitHub Project:",
+                ),
+
+                const SizedBox(height: 6),
+
+                GestureDetector(
+                  onTap: _launchGitHub,
+                  child: const Text(
+                    'https://github.com/JonathanLam12345/ecobee-csv-analyzer',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.blue,
+                      decoration: TextDecoration.underline,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
