@@ -11,10 +11,6 @@ import 'package:syncfusion_flutter_xlsio/xlsio.dart' as xlsio;
 import 'package:csv/csv.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:firebase_database/firebase_database.dart';
-/*
-I would like to check if the thermostat ever rebooted. A black row starting from row #7 indicates the thermostat has no power.
-if two or more consuective rows are blank, it's still con
-*/
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -66,6 +62,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
   String _statusMessage = "Drag & Drop CSV Here \nor\n Click to Upload";
   double? _totalFanHours; // New variable to store total fan hours
   String? _serialNumber;
+  int? _rebootCount;
 
   String? _latestVersion;
   late DatabaseReference _versionRef;
@@ -136,6 +133,39 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       final xlsio.Worksheet sheet = workbook.worksheets[0];
       int? fanSecIndex;
       double totalFanSeconds = 0;
+
+      int rebootCounter = 0;
+      bool inRebootPeriod = false;
+
+      // Start checking from Row 7 (index 6)
+      for (int i = 6; i < csvRows.length; i++) {
+        List<dynamic> row = csvRows[i];
+
+        // A row is considered "blank" if it's empty or the first few cells are empty
+        bool isBlank = row.isEmpty || row.every((cell) => cell == null || cell.toString().trim().isEmpty);
+
+        if (isBlank) {
+          if (!inRebootPeriod) {
+            // First blank row encountered; count it as a reboot
+            rebootCounter++;
+            inRebootPeriod = true;
+          }
+          // If subsequent rows are blank, inRebootPeriod remains true and we don't increment
+        } else {
+          // Thermostat has power again; reset the flag
+          inRebootPeriod = false;
+        }
+      }
+      // --------------------------------------
+
+      // Update state at the end of processing
+      setState(() {
+        _rebootCount = rebootCounter;
+
+      });
+
+
+
 
       if (csvRows.isNotEmpty && csvRows[0].length >= 4) {
         _serialNumber = csvRows[0][3].toString();
@@ -518,7 +548,6 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                 ),
                 const SizedBox(height: 24),
 
-                // --- NEW: Summary Section ---
                 if (_totalFanHours != null || _serialNumber != null)
                   _buildSectionCard(
                     title: "System Runtime Summary",
@@ -529,10 +558,13 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                         _buildTip(
                           "Total Fan Runtime: ${_totalFanHours!.toStringAsFixed(2)} hours",
                         ),
+                      if (_rebootCount != null)
+                        _buildTip("Estimated Thermostat Reboots: $_rebootCount"),
+
                     ],
                   ),
 
-                // ----------------------------
+
                 const SizedBox(height: 32),
                 Text(
                   "Developed by Jonathan Lam",
