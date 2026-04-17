@@ -679,17 +679,12 @@ AppBar _buildConsistentAppBar(BuildContext context, String currentPage) {
       style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
     ),
     backgroundColor: Colors.blue,
-    // Primary blue color [cite: 134]
+
     foregroundColor: Colors.white,
-    // White text/icons [cite: 134]
+
     elevation: 4,
     automaticallyImplyLeading: false,
 
-    // Removes the back arrow [cite: 134]
-
-    // Everything in actions is right-aligned by default
-
-    // ... inside _buildConsistentAppBar actions list ...
     actions: [
       navButton("HOME", "Home", () {
         // Check if we are currently on the Info page
