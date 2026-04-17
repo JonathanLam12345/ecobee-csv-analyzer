@@ -15,7 +15,6 @@ import 'package:firebase_database/firebase_database.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize package info to get the version
   final info = await PackageInfo.fromPlatform();
   final String appVersion = info.version;
 
@@ -60,7 +59,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
   bool _isDragging = false;
   bool _isProcessing = false;
   String _statusMessage = "Drag & Drop CSV Here \nor\n Click to Upload";
-  double? _totalFanHours; // New variable to store total fan hours
+  double? _totalFanHours;
   String? _serialNumber;
   int? _rebootCount;
 
@@ -70,7 +69,6 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
   @override
   void initState() {
     super.initState();
-    // Initialize the reference to your specific database URL and 'version' key
     _versionRef = FirebaseDatabase.instanceFor(
       app: Firebase.app(),
       databaseURL: 'https://ecobee-csv-analyzer-default-rtdb.firebaseio.com/',
@@ -142,7 +140,9 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
         List<dynamic> row = csvRows[i];
 
         // A row is considered "blank" if it's empty or the first few cells are empty
-        bool isBlank = row.isEmpty || row.every((cell) => cell == null || cell.toString().trim().isEmpty);
+        bool isBlank =
+            row.isEmpty ||
+            row.every((cell) => cell == null || cell.toString().trim().isEmpty);
 
         if (isBlank) {
           if (!inRebootPeriod) {
@@ -161,11 +161,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       // Update state at the end of processing
       setState(() {
         _rebootCount = rebootCounter;
-
       });
-
-
-
 
       if (csvRows.isNotEmpty && csvRows[0].length >= 4) {
         _serialNumber = csvRows[0][3].toString();
@@ -559,11 +555,11 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                           "Total Fan Runtime: ${_totalFanHours!.toStringAsFixed(2)} hours",
                         ),
                       if (_rebootCount != null)
-                        _buildTip("Estimated Thermostat Reboots: $_rebootCount"),
-
+                        _buildTip(
+                          "Estimated Thermostat Reboots: $_rebootCount",
+                        ),
                     ],
                   ),
-
 
                 const SizedBox(height: 32),
                 Text(
@@ -719,16 +715,11 @@ AppBar _buildConsistentAppBar(BuildContext context, String currentPage) {
 
     actions: [
       navButton("HOME", "Home", () {
-        // Check if we are currently on the Info page
-        if (currentPage == "Info") {
-          // Simply pop the current page to reveal the Home page underneath
-          // This preserves all the state/data on the Home screen
-          Navigator.pop(context);
+        if (currentPage != "Home") {
+          Navigator.of(context).popUntil((route) => route.isFirst);
         }
       }),
       navButton("How To Use", "Info", () {
-        // Navigates to Info page with NO animation
-        // The Home page stays alive in the background
         Navigator.push(
           context,
           PageRouteBuilder(
@@ -761,12 +752,11 @@ class HowToUsePage extends StatelessWidget {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FB),
       appBar: _buildConsistentAppBar(context, "Info"),
-      // Added SingleChildScrollView and Padding to match the main page layout
+
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
         child: Center(
           child: ConstrainedBox(
-            // Constraints force the card to stay 900px wide, making the border visible
             constraints: const BoxConstraints(maxWidth: 900),
             child: _buildSectionCard(
               title: "User Tips & How to Use",
@@ -794,8 +784,6 @@ class HowToUsePage extends StatelessWidget {
     );
   }
 }
-
-
 
 class PrivacyPolicyPage extends StatelessWidget {
   const PrivacyPolicyPage({super.key});
@@ -858,9 +846,7 @@ No personal data is stored, so nothing is collected or shared.
 
                 const SizedBox(height: 20),
 
-                const Text(
-                  "GitHub Project:",
-                ),
+                const Text("GitHub Project:"),
 
                 const SizedBox(height: 6),
 
@@ -883,4 +869,3 @@ No personal data is stored, so nothing is collected or shared.
     );
   }
 }
-
