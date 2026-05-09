@@ -62,6 +62,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
   double? _totalFanHours;
   String? _serialNumber;
   int? _rebootCount;
+  List<String> _rebootDetails = [];
 
   String? _latestVersion;
   late DatabaseReference _versionRef;
@@ -134,25 +135,48 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
 
       int rebootCounter = 0;
       bool inRebootPeriod = false;
+      String rebootStartTimestamp = "";
+      List<String> currentRebootDetails = [];
+      String rebootStartDate = "";
+      String rebootStartTime = "";
 
-      // Start checking from Row 7 (index 6)
+      // Start processing data from Row 7 (index 6)
       for (int i = 6; i < csvRows.length; i++) {
         List<dynamic> row = csvRows[i];
 
-        // A row is considered "blank" if it's empty or the first few cells are empty
-        bool isBlank =
-            row.isEmpty ||
-            row.every((cell) => cell == null || cell.toString().trim().isEmpty);
+        // Skip rows that are too short to have Column K
+        if (row.length < 11) continue;
 
-        if (isBlank) {
+        // Column C is index 2 | Column K is index 10
+        String colC = row[2]?.toString().trim() ?? "";
+        String colK = row[10]?.toString().trim() ?? "";
+
+        // A REBOOT ROW: Column C is blank, but Column K HAS data
+        bool isRebootRow = colC.isEmpty && colK.isNotEmpty;
+
+        // AN ONLINE ROW: Column C has actual system data
+        bool isOnline = colC.isNotEmpty;
+
+        if (isRebootRow) {
           if (!inRebootPeriod) {
-            // First blank row encountered; count it as a reboot
-            rebootCounter++;
-            inRebootPeriod = true;
+            // Grab the date and time when the power loss STARTS
+            rebootStartDate = row[0]?.toString() ?? "";
+            rebootStartTime = row[1]?.toString() ?? "";
           }
-          // If subsequent rows are blank, inRebootPeriod remains true and we don't increment
-        } else {
-          // Thermostat has power again; reset the flag
+          // The thermostat has lost power/connection.
+          // We DO NOT count it yet, we just mark that it went down.
+          inRebootPeriod = true;
+        } else if (isOnline) {
+          // The thermostat is successfully reporting data.
+          if (inRebootPeriod) {
+            rebootCounter++;
+
+            String detail =
+                "Reboot #$rebootCounter|$rebootStartDate|$rebootStartTime";
+            currentRebootDetails.add(detail);
+            debugPrint(detail);
+          }
+          // Reset the flag so we can catch the next gap
           inRebootPeriod = false;
         }
       }
@@ -161,6 +185,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       // Update state at the end of processing
       setState(() {
         _rebootCount = rebootCounter;
+        _rebootDetails = currentRebootDetails;
       });
 
       if (csvRows.isNotEmpty && csvRows[0].length >= 4) {
@@ -256,6 +281,15 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                 final String currentHeader =
                     sheet.getRangeByIndex(6, targetCol).getText()?.trim() ?? "";
                 if (currentHeader == "Heat Stage 1 (sec)" && numericValue > 0) {
+                  cellRange.cellStyle.backColor = '#ffe5e8';
+                }
+                else  if (currentHeader == "Heat Stage 2 (sec)" && numericValue > 0) {
+                  cellRange.cellStyle.backColor = '#ffe5e8';
+                }
+                else if (currentHeader == "Aux Heat 1 (sec)" && numericValue > 0) {
+                  cellRange.cellStyle.backColor = '#ffe5e8';
+                }
+               else  if (currentHeader == "Aux Heat 2 (sec)" && numericValue > 0) {
                   cellRange.cellStyle.backColor = '#ffe5e8';
                 } else if (currentHeader == "Fan (sec)" && numericValue > 0) {
                   cellRange.cellStyle.backColor = '#c6e0b4';
@@ -421,7 +455,6 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
 
   @override
   Widget build(BuildContext context) {
-    // --- NEW: Logic to determine the version display text and color ---
     String displayVersionText = "Version ${widget.version}";
     Color versionColor = Colors.blueGrey.shade300;
     FontWeight versionWeight = FontWeight.w400;
@@ -433,7 +466,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
         versionColor = Colors.green.shade600;
         versionWeight = FontWeight.w400;
       } else {
-        displayVersionText = "Version ${widget.version} (Requires an update)";
+        displayVersionText = "Version ${widget.version} (Click to update)";
         versionColor = Colors.redAccent;
         versionWeight = FontWeight.w600;
       }
@@ -455,17 +488,33 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                   alignment: Alignment.centerRight,
                   child: Padding(
                     padding: const EdgeInsets.only(bottom: 8.0),
-                    child: SelectableText(
-                      displayVersionText, // Uses the dynamic text
-                      style: TextStyle(
-                        color: versionColor, // Uses the dynamic color
-                        fontSize: 12, // Slightly larger for better visibility
-                        fontWeight:
-                            versionWeight, // Bolder if an update is required
+                    child: MouseRegion(
+                      // The cursor will now correctly show the pointer/hand
+                      cursor: (_latestVersion != null && !_isUpToDate(widget.version, _latestVersion!))
+                          ? SystemMouseCursors.click
+                          : SystemMouseCursors.basic,
+                      child: GestureDetector(
+                        onTap: () {
+                          if (_latestVersion != null && !_isUpToDate(widget.version, _latestVersion!)) {
+                            html.window.location.reload();
+                          }
+                        },
+                        child: Text( // Changed from SelectableText to Text
+                          displayVersionText,
+                          style: TextStyle(
+                            color: versionColor,
+                            fontSize: 12,
+                            fontWeight: versionWeight,
+                            decoration: (_latestVersion != null && !_isUpToDate(widget.version, _latestVersion!))
+                                ? TextDecoration.underline
+                                : TextDecoration.none,
+                          ),
+                        ),
                       ),
                     ),
                   ),
                 ),
+
 
                 // ... (The rest of your existing body code continues here) ...
                 _buildSectionCard(
@@ -546,20 +595,100 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
 
                 if (_totalFanHours != null || _serialNumber != null)
                   _buildSectionCard(
-                    title: "System Runtime Summary",
+                    maxWidth: 700,
+                    title: "Thermostat Report Summary",
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       if (_serialNumber != null)
-                        _buildTip("Thermostat Serial Number: $_serialNumber"),
+                        Align(
+                          alignment: Alignment.center,
+                          child: FractionallySizedBox(
+                            widthFactor: 0.60,
+                            child: Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 4,
+                                horizontal: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFFF00),
+
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: Colors.black12),
+                              ),
+                              child: _buildTip(
+                                "Thermostat Serial Number: $_serialNumber",
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ),
+                        ),
                       if (_totalFanHours != null)
-                        _buildTip(
-                          "Total Fan Runtime: ${_totalFanHours!.toStringAsFixed(2)} hours",
+                        Align(
+                          alignment: Alignment.center,
+                          child: FractionallySizedBox(
+                            widthFactor: 0.60,
+                            child: Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 4,
+                                horizontal: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFC6E0B4),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: Colors.black12),
+                              ),
+                              child: _buildTip(
+                                "Total Fan Runtime: ${_totalFanHours!.toStringAsFixed(2)} hours",
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ),
                         ),
                       if (_rebootCount != null)
-                        _buildTip(
-                          "Estimated Thermostat Reboots: $_rebootCount",
+                        Column(
+                          // Use a Column to stack the count and the details
+                          children: [
+                            Align(
+                              alignment: Alignment.center,
+                              child: FractionallySizedBox(
+                                widthFactor: 0.60,
+                                child: Container(
+                                  margin: const EdgeInsets.only(bottom: 8),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 4,
+                                    horizontal: 8,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: (_rebootCount! > 0)
+                                        ? const Color(0xFFEF5350)
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(color: Colors.black12),
+                                  ),
+                                  child: _buildTip(
+                                    "Number of Thermostat Reboots: $_rebootCount",
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            ..._rebootDetails.map(
+                              (detail) => _buildTip(
+                                detail,
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ],
                         ),
                     ],
                   ),
+
+
+
+
+
 
                 const SizedBox(height: 32),
                 Text(
@@ -583,41 +712,127 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
 Widget _buildSectionCard({
   required String title,
   required List<Widget> children,
+  double? maxWidth,
+  Color? backgroundColor,
+  Color? borderColor,
+  CrossAxisAlignment crossAxisAlignment = CrossAxisAlignment.start,
 }) {
   return Container(
-    width: double.infinity,
+    margin: const EdgeInsets.only(bottom: 24),
+    constraints: BoxConstraints(maxWidth: maxWidth ?? double.infinity),
     padding: const EdgeInsets.all(24),
     decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(20),
+      color: backgroundColor ?? Colors.white,
+      // Defaults to white if no color provided
+      borderRadius: BorderRadius.circular(12),
+      border: borderColor != null
+          ? Border.all(color: borderColor, width: 2)
+          : null,
       boxShadow: [
         BoxShadow(
-          color: Colors.black.withOpacity(0.03),
+          color: Colors.black.withOpacity(0.05),
           blurRadius: 10,
           offset: const Offset(0, 4),
         ),
       ],
-      border: Border.all(color: Colors.grey.shade200),
     ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: Colors.blueAccent,
+    child: SelectionArea(
+      child: Column(
+        crossAxisAlignment: crossAxisAlignment,
+      
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: Colors.blueGrey,
+            ),
           ),
-        ),
-        const SizedBox(height: 15),
-        ...children,
-      ],
+          const SizedBox(height: 16),
+          ...children,
+        ],
+      ),
     ),
   );
 }
 
-Widget _buildTip(String text) {
+Widget _buildTip(String text, {TextAlign textAlign = TextAlign.left}) {
+  // 1. Define the colored bar style
+  final TextStyle separatorStyle = const TextStyle(
+    fontWeight: FontWeight.bold,
+    color: Color(0xFFEF5350),
+    fontSize: 15,
+  );
+
+  // 2. Define the normal text style
+  final TextStyle normalStyle = TextStyle(
+    color: Colors.black,
+    fontSize: 12,
+    height: 1.4,
+  );
+
+  // 3. NEW: Define the BOLD text style for your labels
+  final TextStyle boldStyle = TextStyle(
+    color: Colors.blueGrey.shade800, // Slightly darker to make the bold pop
+    fontWeight: FontWeight.bold,     // Applies the bold weight
+    fontSize: 12,
+    height: 1.4,
+  );
+
+  // Logic to build the styled text
+  Widget content;
+  List<InlineSpan> spans = [];
+
+  if (text.contains('|')) {
+    List<String> parts = text.split('|');
+    for (int i = 0; i < parts.length; i++) {
+
+      // NEW: If it's the first part and contains "Reboot #", make it bold
+      if (i == 0 && parts[i].trim().startsWith('Reboot #')) {
+        spans.add(TextSpan(text: parts[i], style: boldStyle));
+      } else {
+        spans.add(TextSpan(text: parts[i], style: normalStyle));
+      }
+
+      // Add the bold colored separator if we aren't at the last part
+      if (i < parts.length - 1) {
+        spans.add(TextSpan(text: ' | ', style: separatorStyle));
+      }
+    }
+  } else if (text.contains(':')) {
+    // NEW: If the text has a colon, split it to make the label bold
+    int colonIndex = text.indexOf(':');
+
+    // Everything up to and including the colon becomes bold
+    String boldPart = text.substring(0, colonIndex + 1);
+    // Everything after the colon stays normal
+    String normalPart = text.substring(colonIndex + 1);
+
+    spans.add(TextSpan(text: boldPart, style: boldStyle));
+    spans.add(TextSpan(text: normalPart, style: normalStyle));
+  } else {
+    // Fallback for regular lines without colons or bars
+    spans.add(TextSpan(text: text, style: normalStyle));
+  }
+
+  // Compile the spans into the RichText widget
+  content = RichText(
+    textAlign: textAlign,
+    text: TextSpan(children: spans),
+  );
+
+  // Handle Centered Layout
+  if (textAlign == TextAlign.center) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
+      child: Center(
+        child: content,
+      ),
+    );
+  }
+
+  // Handle Default Left-Aligned Layout with Bullet
   return Padding(
     padding: const EdgeInsets.symmetric(vertical: 6.0),
     child: Row(
@@ -625,25 +840,18 @@ Widget _buildTip(String text) {
       children: [
         const Text(
           "• ",
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            color: Colors.blueAccent,
-          ),
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
         ),
+        const SizedBox(width: 8),
         Expanded(
-          child: Text(
-            text,
-            style: TextStyle(
-              color: Colors.blueGrey.shade700,
-              fontSize: 12,
-              height: 1.4,
-            ),
-          ),
+          child: content,
         ),
       ],
     ),
   );
 }
+
+
 
 AppBar _buildConsistentAppBar(BuildContext context, String currentPage) {
   // Helper to build the stylized nav button with high-visibility UX
@@ -719,7 +927,7 @@ AppBar _buildConsistentAppBar(BuildContext context, String currentPage) {
           Navigator.of(context).popUntil((route) => route.isFirst);
         }
       }),
-      navButton("How To Use", "Info", () {
+      navButton("About", "Info", () {
         Navigator.push(
           context,
           PageRouteBuilder(
@@ -756,29 +964,73 @@ class HowToUsePage extends StatelessWidget {
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
         child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 900),
-            child: _buildSectionCard(
-              title: "User Tips & How to Use",
-              children: [
-                _buildTip(
-                  "Upload your .csv Temperature Report by dragging it into the box above or clicking the box to browse the .csv file.",
+          child: Column(
+            children: [
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 900),
+                child: _buildSectionCard(
+                  title: "User Tips & How to Use",
+                  children: [
+                    _buildTip(
+                      "Upload your .csv Temperature Report by dragging it into the box above or clicking the box to browse the .csv file.",
+                    ),
+                    _buildTip(
+                      "To locate your .csv file more easily, sort your folder by 'Date Modified' to see your most recent downloads first.",
+                    ),
+                    _buildTip(
+                      "Please note the web app saves the report as a .xlsx file instead of a .csv file.\nTo have future .xlsx reports open automatically after processing, right-click the .xlsx file in Chrome's 'Recent Download History' and select 'Always open files of this type'.\nYou can also disable this setting for .csv files to prevent the unformatted data from opening automatically.",
+                    ),
+                    _buildTip(
+                      "Please reach out to Jonathan Lam on Slack to report any issues or to provide feedback.",
+                    ),
+                  ],
                 ),
-                _buildTip(
-                  "To locate your .csv file more easily, sort your folder by 'Date Modified' to see your most recent downloads first.",
+              ),
+
+
+
+              const SizedBox(height: 5),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 900),
+                child: _buildSectionCard(
+                  title: "Support this Project",
+                  children: [
+                    const Text(
+                      "If you find this tool helpful for your diagnostics, please consider supporting its development. Maintaining this site takes time and comes with ongoing costs. Your support is greatly appreciated.",
+                      style: TextStyle(fontSize: 14, color: Colors.black87),
+                    ),
+                    const SizedBox(height: 16),
+                    Center(
+                      child: ElevatedButton.icon(
+                        onPressed: () async {
+                          final url = Uri.parse("https://www.buymeacoffee.com/jonathanlam12345");
+                          if (await canLaunchUrl(url)) {
+                            await launchUrl(url);
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFFDD00), // BMC Yellow
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          elevation: 2,
+                        ),
+                        icon: const Icon(Icons.coffee, size: 20),
+                        label: const Text(
+                          "Buy me a coffee",
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                _buildTip(
-                  "Please note the web app saves the report as a .xlsx file instead of a .csv file.\nTo have future .xlsx reports open automatically after processing, right-click the .xlsx file in Chrome's 'Recent Download History' and select 'Always open files of this type'.\nYou can also disable this setting for .csv files to prevent the unformatted data from opening automatically from AP2.",
-                ),
-                _buildTip(
-                  "This web app is updated occasionally. To ensure you are using the latest version, you may need to clear your browser cache or at least for this webpage by pressing CTRL + F5 (Chrome for Windows).",
-                ),
-                _buildTip(
-                  "Please reach out to Jonathan Lam on Slack to report any issues or to provide feedback.",
-                ),
-              ],
-            ),
+              ),
+              //
+            ],
           ),
+
+
+
         ),
       ),
     );
@@ -816,26 +1068,26 @@ class PrivacyPolicyPage extends StatelessWidget {
 This web app is built as a simple tool to help improve performance and make work easier for the team.
 
 Information Collection:
-We do not collect or store any personal information from users. Anything you use or enter on this website is not saved in a database or kept anywhere.
+• We do not collect or store any personal information from users. Anything you use or enter on this website is not saved in a database or kept anywhere.
+• Please note that an analytics counter is used to only track how many users have interacted with the application.
 
 How the App Works:
-For the CSV formatter feature, it reads thermostat reports, formats them according to requirements, and automatically saves the final file as an XLSX file onto the user's computer.
+• For the CSV formatter feature, it reads thermostat reports, formats them according to requirements, and automatically saves the final file as an XLSX file onto the user's computer.
 
 This web application is connected to a database only to:
-- Retrieve the most up-to-date version number
-- Make sure users are always using the latest version of the tool
+• Retrieve the most up-to-date version number to ensure users are always using the latest version of the tool
 
 Purpose of the Web App:
 This website is only meant to be a work tool. It is designed to:
-- Help improve productivity
-- Support team workflows
-- Make tasks easier and more efficient
+• Help improve productivity
+• Support team workflows
+• Make tasks easier and more efficient
 
 Feedback:
-Team members can give feedback or suggestions to improve the app.
+• Team members can give feedback or suggestions to improve the app.
 
 Data Security:
-No personal data is stored, so nothing is collected or shared.
+• No personal data is stored. Once the application generates the output file and displays analyzed data on the screen, the application does not have access to any data anymore, therefore, nothing is collected or shared.
                   ''',
                   style: TextStyle(
                     fontSize: 14,
@@ -844,23 +1096,23 @@ No personal data is stored, so nothing is collected or shared.
                   ),
                 ),
 
-                const SizedBox(height: 20),
-
-                const Text("GitHub Project:"),
-
-                const SizedBox(height: 6),
-
-                GestureDetector(
-                  onTap: _launchGitHub,
-                  child: const Text(
-                    'https://github.com/JonathanLam12345/ecobee-csv-analyzer',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.blue,
-                      decoration: TextDecoration.underline,
-                    ),
-                  ),
-                ),
+                // const SizedBox(height: 20),
+                //
+                // const Text("GitHub Project:"),
+                //
+                // const SizedBox(height: 6),
+                //
+                // GestureDetector(
+                //   onTap: _launchGitHub,
+                //   child: const Text(
+                //     'https://github.com/JonathanLam12345/ecobee-csv-analyzer',
+                //     style: TextStyle(
+                //       fontSize: 14,
+                //       color: Colors.blue,
+                //       decoration: TextDecoration.underline,
+                //     ),
+                //   ),
+                // ),
               ],
             ),
           ),
