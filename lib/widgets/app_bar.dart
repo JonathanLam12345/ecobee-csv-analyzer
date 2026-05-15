@@ -1,24 +1,19 @@
 import 'package:flutter/material.dart';
 
-import '../main.dart';
 import '../screens/how_to_use.dart';
 import '../screens/privacy_policy.dart';
 
-class ConsistentAppBar extends StatelessWidget
-    implements PreferredSizeWidget {
+class ConsistentAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String currentPage;
 
-  const ConsistentAppBar({
-    super.key,
-    required this.currentPage,
-  });
+  const ConsistentAppBar({super.key, required this.currentPage});
 
   Widget _navButton(
-      BuildContext context,
-      String label,
-      String pageId,
-      VoidCallback onPressed,
-      ) {
+    BuildContext context,
+    String label,
+    String pageId,
+    VoidCallback onPressed,
+  ) {
     final isActive = currentPage == pageId;
 
     return Padding(
@@ -26,8 +21,9 @@ class ConsistentAppBar extends StatelessWidget
       child: TextButton(
         onPressed: isActive ? null : onPressed,
         style: TextButton.styleFrom(
-          backgroundColor:
-          isActive ? Colors.white.withOpacity(0.15) : Colors.transparent,
+          backgroundColor: isActive
+              ? Colors.white.withOpacity(0.15)
+              : Colors.transparent,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
@@ -42,8 +38,7 @@ class ConsistentAppBar extends StatelessWidget
                 color: Colors.white,
                 fontSize: 13,
                 letterSpacing: 0.8,
-                fontWeight:
-                isActive ? FontWeight.bold : FontWeight.w400,
+                fontWeight: isActive ? FontWeight.bold : FontWeight.w400,
               ),
             ),
             if (isActive)
@@ -89,8 +84,7 @@ class ConsistentAppBar extends StatelessWidget
           Navigator.push(
             context,
             PageRouteBuilder(
-              pageBuilder: (context, anim1, anim2) =>
-              const HowToUsePage(),
+              pageBuilder: (context, anim1, anim2) => const HowToUsePage(),
               transitionDuration: Duration.zero,
               reverseTransitionDuration: Duration.zero,
             ),
@@ -100,8 +94,7 @@ class ConsistentAppBar extends StatelessWidget
           Navigator.push(
             context,
             PageRouteBuilder(
-              pageBuilder: (context, anim1, anim2) =>
-              const PrivacyPolicyPage(),
+              pageBuilder: (context, anim1, anim2) => const PrivacyPolicyPage(),
               transitionDuration: Duration.zero,
               reverseTransitionDuration: Duration.zero,
             ),

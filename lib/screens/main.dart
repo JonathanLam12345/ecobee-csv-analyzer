@@ -1,20 +1,18 @@
 import 'dart:convert';
-import 'dart:typed_data';
-import 'package:ecobee_tstat_csv/screens/how_to_use.dart';
+import 'dart:html' as html;
+
+import 'package:csv/csv.dart';
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:ecobee_tstat_csv/widgets/app_bar.dart';
 import 'package:ecobee_tstat_csv/widgets/section_card.dart';
 import 'package:ecobee_tstat_csv/widgets/tip_text.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'dart:html' as html;
-import 'package:flutter/material.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
-import 'package:desktop_drop/desktop_drop.dart';
-import 'package:flutter/services.dart';
-import 'package:syncfusion_flutter_xlsio/xlsio.dart' as xlsio;
-import 'package:csv/csv.dart';
-import 'package:package_info_plus/package_info_plus.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:syncfusion_flutter_xlsio/xlsio.dart' as xlsio;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -51,7 +49,7 @@ class ExcelProcessorApp extends StatefulWidget {
   const ExcelProcessorApp({
     super.key,
     required this.version,
-  }); // Add version here
+  }); 
 
   @override
   State<ExcelProcessorApp> createState() => _ExcelProcessorAppState();
@@ -286,14 +284,14 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                     sheet.getRangeByIndex(6, targetCol).getText()?.trim() ?? "";
                 if (currentHeader == "Heat Stage 1 (sec)" && numericValue > 0) {
                   cellRange.cellStyle.backColor = '#ffe5e8';
-                }
-                else  if (currentHeader == "Heat Stage 2 (sec)" && numericValue > 0) {
+                } else if (currentHeader == "Heat Stage 2 (sec)" &&
+                    numericValue > 0) {
                   cellRange.cellStyle.backColor = '#ffe5e8';
-                }
-                else if (currentHeader == "Aux Heat 1 (sec)" && numericValue > 0) {
+                } else if (currentHeader == "Aux Heat 1 (sec)" &&
+                    numericValue > 0) {
                   cellRange.cellStyle.backColor = '#ffe5e8';
-                }
-               else  if (currentHeader == "Aux Heat 2 (sec)" && numericValue > 0) {
+                } else if (currentHeader == "Aux Heat 2 (sec)" &&
+                    numericValue > 0) {
                   cellRange.cellStyle.backColor = '#ffe5e8';
                 } else if (currentHeader == "Fan (sec)" && numericValue > 0) {
                   cellRange.cellStyle.backColor = '#c6e0b4';
@@ -494,22 +492,31 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                     padding: const EdgeInsets.only(bottom: 8.0),
                     child: MouseRegion(
                       // The cursor will now correctly show the pointer/hand
-                      cursor: (_latestVersion != null && !_isUpToDate(widget.version, _latestVersion!))
+                      cursor:
+                          (_latestVersion != null &&
+                              !_isUpToDate(widget.version, _latestVersion!))
                           ? SystemMouseCursors.click
                           : SystemMouseCursors.basic,
                       child: GestureDetector(
                         onTap: () {
-                          if (_latestVersion != null && !_isUpToDate(widget.version, _latestVersion!)) {
+                          if (_latestVersion != null &&
+                              !_isUpToDate(widget.version, _latestVersion!)) {
                             html.window.location.reload();
                           }
                         },
-                        child: Text( // Changed from SelectableText to Text
+                        child: Text(
+                          // Changed from SelectableText to Text
                           displayVersionText,
                           style: TextStyle(
                             color: versionColor,
                             fontSize: 12,
                             fontWeight: versionWeight,
-                            decoration: (_latestVersion != null && !_isUpToDate(widget.version, _latestVersion!))
+                            decoration:
+                                (_latestVersion != null &&
+                                    !_isUpToDate(
+                                      widget.version,
+                                      _latestVersion!,
+                                    ))
                                 ? TextDecoration.underline
                                 : TextDecoration.none,
                           ),
@@ -519,8 +526,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                   ),
                 ),
 
-
-               SectionCard(
+                SectionCard(
                   title: "About CSV Analyzer",
                   children: [
                     Text(
@@ -678,20 +684,13 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                               ),
                             ),
                             ..._rebootDetails.map(
-                              (detail) => TipText(
-                                detail,
-                                textAlign: TextAlign.center,
-                              ),
+                              (detail) =>
+                                  TipText(detail, textAlign: TextAlign.center),
                             ),
                           ],
                         ),
                     ],
                   ),
-
-
-
-
-
 
                 const SizedBox(height: 32),
                 Text(
@@ -711,6 +710,3 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
     );
   }
 }
-
-
-

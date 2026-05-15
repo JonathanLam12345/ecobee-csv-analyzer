@@ -1,21 +1,8 @@
-import 'dart:convert';
-import 'dart:typed_data';
-import 'package:url_launcher/url_launcher.dart';
-import 'dart:html' as html;
 import 'package:flutter/material.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_analytics/firebase_analytics.dart';
-import 'package:desktop_drop/desktop_drop.dart';
-import 'package:flutter/services.dart';
-import 'package:syncfusion_flutter_xlsio/xlsio.dart' as xlsio;
-import 'package:csv/csv.dart';
-import 'package:package_info_plus/package_info_plus.dart';
-import 'package:firebase_database/firebase_database.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../widgets/app_bar.dart';
 import '../widgets/section_card.dart';
-import '../widgets/tip_text.dart';
-
 
 class PrivacyPolicyPage extends StatelessWidget {
   const PrivacyPolicyPage({super.key});
@@ -34,7 +21,7 @@ class PrivacyPolicyPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FB),
-      appBar: ConsistentAppBar(currentPage:"privacy"),
+      appBar: ConsistentAppBar(currentPage: "privacy"),
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
         child: Center(
