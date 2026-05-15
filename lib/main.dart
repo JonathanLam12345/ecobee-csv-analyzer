@@ -1,5 +1,9 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:ecobee_tstat_csv/screens/how_to_use.dart';
+import 'package:ecobee_tstat_csv/widgets/app_bar.dart';
+import 'package:ecobee_tstat_csv/widgets/section_card.dart';
+import 'package:ecobee_tstat_csv/widgets/tip_text.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:html' as html;
 import 'package:flutter/material.dart';
@@ -473,7 +477,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
     }
 
     return Scaffold(
-      appBar: _buildConsistentAppBar(context, "Home"),
+      appBar: ConsistentAppBar(currentPage: "Home"),
       backgroundColor: const Color(0xFFF8F9FB),
 
       // ... (Rest of your SingleChildScrollView body)
@@ -516,8 +520,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                 ),
 
 
-                // ... (The rest of your existing body code continues here) ...
-                _buildSectionCard(
+               SectionCard(
                   title: "About CSV Analyzer",
                   children: [
                     Text(
@@ -594,7 +597,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                 const SizedBox(height: 24),
 
                 if (_totalFanHours != null || _serialNumber != null)
-                  _buildSectionCard(
+                  SectionCard(
                     maxWidth: 700,
                     title: "Thermostat Report Summary",
                     crossAxisAlignment: CrossAxisAlignment.center,
@@ -616,7 +619,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                 borderRadius: BorderRadius.circular(6),
                                 border: Border.all(color: Colors.black12),
                               ),
-                              child: _buildTip(
+                              child: TipText(
                                 "Thermostat Serial Number: $_serialNumber",
                                 textAlign: TextAlign.center,
                               ),
@@ -639,7 +642,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                 borderRadius: BorderRadius.circular(6),
                                 border: Border.all(color: Colors.black12),
                               ),
-                              child: _buildTip(
+                              child: TipText(
                                 "Total Fan Runtime: ${_totalFanHours!.toStringAsFixed(2)} hours",
                                 textAlign: TextAlign.center,
                               ),
@@ -667,7 +670,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                     borderRadius: BorderRadius.circular(6),
                                     border: Border.all(color: Colors.black12),
                                   ),
-                                  child: _buildTip(
+                                  child: TipText(
                                     "Number of Thermostat Reboots: $_rebootCount",
                                     textAlign: TextAlign.center,
                                   ),
@@ -675,7 +678,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                               ),
                             ),
                             ..._rebootDetails.map(
-                              (detail) => _buildTip(
+                              (detail) => TipText(
                                 detail,
                                 textAlign: TextAlign.center,
                               ),
@@ -709,415 +712,5 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
   }
 }
 
-Widget _buildSectionCard({
-  required String title,
-  required List<Widget> children,
-  double? maxWidth,
-  Color? backgroundColor,
-  Color? borderColor,
-  CrossAxisAlignment crossAxisAlignment = CrossAxisAlignment.start,
-}) {
-  return Container(
-    margin: const EdgeInsets.only(bottom: 24),
-    constraints: BoxConstraints(maxWidth: maxWidth ?? double.infinity),
-    padding: const EdgeInsets.all(24),
-    decoration: BoxDecoration(
-      color: backgroundColor ?? Colors.white,
-      // Defaults to white if no color provided
-      borderRadius: BorderRadius.circular(12),
-      border: borderColor != null
-          ? Border.all(color: borderColor, width: 2)
-          : null,
-      boxShadow: [
-        BoxShadow(
-          color: Colors.black.withOpacity(0.05),
-          blurRadius: 10,
-          offset: const Offset(0, 4),
-        ),
-      ],
-    ),
-    child: SelectionArea(
-      child: Column(
-        crossAxisAlignment: crossAxisAlignment,
-      
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: Colors.blueGrey,
-            ),
-          ),
-          const SizedBox(height: 16),
-          ...children,
-        ],
-      ),
-    ),
-  );
-}
-
-Widget _buildTip(String text, {TextAlign textAlign = TextAlign.left}) {
-  // 1. Define the colored bar style
-  final TextStyle separatorStyle = const TextStyle(
-    fontWeight: FontWeight.bold,
-    color: Color(0xFFEF5350),
-    fontSize: 15,
-  );
-
-  // 2. Define the normal text style
-  final TextStyle normalStyle = TextStyle(
-    color: Colors.black,
-    fontSize: 12,
-    height: 1.4,
-  );
-
-  // 3. NEW: Define the BOLD text style for your labels
-  final TextStyle boldStyle = TextStyle(
-    color: Colors.blueGrey.shade800, // Slightly darker to make the bold pop
-    fontWeight: FontWeight.bold,     // Applies the bold weight
-    fontSize: 12,
-    height: 1.4,
-  );
-
-  // Logic to build the styled text
-  Widget content;
-  List<InlineSpan> spans = [];
-
-  if (text.contains('|')) {
-    List<String> parts = text.split('|');
-    for (int i = 0; i < parts.length; i++) {
-
-      // NEW: If it's the first part and contains "Reboot #", make it bold
-      if (i == 0 && parts[i].trim().startsWith('Reboot #')) {
-        spans.add(TextSpan(text: parts[i], style: boldStyle));
-      } else {
-        spans.add(TextSpan(text: parts[i], style: normalStyle));
-      }
-
-      // Add the bold colored separator if we aren't at the last part
-      if (i < parts.length - 1) {
-        spans.add(TextSpan(text: ' | ', style: separatorStyle));
-      }
-    }
-  } else if (text.contains(':')) {
-    // NEW: If the text has a colon, split it to make the label bold
-    int colonIndex = text.indexOf(':');
-
-    // Everything up to and including the colon becomes bold
-    String boldPart = text.substring(0, colonIndex + 1);
-    // Everything after the colon stays normal
-    String normalPart = text.substring(colonIndex + 1);
-
-    spans.add(TextSpan(text: boldPart, style: boldStyle));
-    spans.add(TextSpan(text: normalPart, style: normalStyle));
-  } else {
-    // Fallback for regular lines without colons or bars
-    spans.add(TextSpan(text: text, style: normalStyle));
-  }
-
-  // Compile the spans into the RichText widget
-  content = RichText(
-    textAlign: textAlign,
-    text: TextSpan(children: spans),
-  );
-
-  // Handle Centered Layout
-  if (textAlign == TextAlign.center) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6.0),
-      child: Center(
-        child: content,
-      ),
-    );
-  }
-
-  // Handle Default Left-Aligned Layout with Bullet
-  return Padding(
-    padding: const EdgeInsets.symmetric(vertical: 6.0),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          "• ",
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: content,
-        ),
-      ],
-    ),
-  );
-}
 
 
-
-AppBar _buildConsistentAppBar(BuildContext context, String currentPage) {
-  // Helper to build the stylized nav button with high-visibility UX
-  Widget navButton(String label, String pageId, VoidCallback onPressed) {
-    bool isActive = currentPage == pageId;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-      child: TextButton(
-        onPressed: isActive ? null : onPressed,
-        style: TextButton.styleFrom(
-          // Active state gets a subtle background capsule
-          backgroundColor: isActive
-              ? Colors.white.withOpacity(0.15)
-              : Colors.transparent,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 13,
-                letterSpacing: 0.8,
-                // Bold text for active page [cite: 138]
-                fontWeight: isActive ? FontWeight.bold : FontWeight.w400,
-              ),
-            ),
-            // High-visibility highlight bar
-            if (isActive)
-              Container(
-                margin: const EdgeInsets.only(top: 4),
-                // FIXED: Used .only instead of .top
-                height: 3,
-                width: 24,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(2),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.white.withOpacity(0.5),
-                      blurRadius: 4,
-                    ),
-                  ],
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  return AppBar(
-    title: const Text(
-      "",
-      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-    ),
-    backgroundColor: Colors.blue,
-
-    foregroundColor: Colors.white,
-
-    elevation: 4,
-    automaticallyImplyLeading: false,
-
-    actions: [
-      navButton("HOME", "Home", () {
-        if (currentPage != "Home") {
-          Navigator.of(context).popUntil((route) => route.isFirst);
-        }
-      }),
-      navButton("About", "Info", () {
-        Navigator.push(
-          context,
-          PageRouteBuilder(
-            pageBuilder: (context, anim1, anim2) => const HowToUsePage(),
-            transitionDuration: Duration.zero,
-            reverseTransitionDuration: Duration.zero,
-          ),
-        );
-      }),
-      navButton("Privacy Policy", "privacy", () {
-        Navigator.push(
-          context,
-          PageRouteBuilder(
-            pageBuilder: (context, anim1, anim2) => const PrivacyPolicyPage(),
-            transitionDuration: Duration.zero,
-            reverseTransitionDuration: Duration.zero,
-          ),
-        );
-      }),
-      const SizedBox(width: 12),
-    ],
-  );
-}
-
-class HowToUsePage extends StatelessWidget {
-  const HowToUsePage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FB),
-      appBar: _buildConsistentAppBar(context, "Info"),
-
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
-        child: Center(
-          child: Column(
-            children: [
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 900),
-                child: _buildSectionCard(
-                  title: "User Tips & How to Use",
-                  children: [
-                    _buildTip(
-                      "Upload your .csv Temperature Report by dragging it into the box above or clicking the box to browse the .csv file.",
-                    ),
-                    _buildTip(
-                      "To locate your .csv file more easily, sort your folder by 'Date Modified' to see your most recent downloads first.",
-                    ),
-                    _buildTip(
-                      "Please note the web app saves the report as a .xlsx file instead of a .csv file.\nTo have future .xlsx reports open automatically after processing, right-click the .xlsx file in Chrome's 'Recent Download History' and select 'Always open files of this type'.\nYou can also disable this setting for .csv files to prevent the unformatted data from opening automatically.",
-                    ),
-                    _buildTip(
-                      "Please reach out to Jonathan Lam on Slack to report any issues or to provide feedback.",
-                    ),
-                  ],
-                ),
-              ),
-
-
-
-              const SizedBox(height: 5),
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 900),
-                child: _buildSectionCard(
-                  title: "Support this Project",
-                  children: [
-                    const Text(
-                      "If you find this tool helpful for your diagnostics, please consider supporting its development. Maintaining this site takes time and comes with ongoing costs. Your support is greatly appreciated.",
-                      style: TextStyle(fontSize: 14, color: Colors.black87),
-                    ),
-                    const SizedBox(height: 16),
-                    Center(
-                      child: ElevatedButton.icon(
-                        onPressed: () async {
-                          final url = Uri.parse("https://www.buymeacoffee.com/jonathanlam12345");
-                          if (await canLaunchUrl(url)) {
-                            await launchUrl(url);
-                          }
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFFFDD00), // BMC Yellow
-                          foregroundColor: Colors.black,
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          elevation: 2,
-                        ),
-                        icon: const Icon(Icons.coffee, size: 20),
-                        label: const Text(
-                          "Buy me a coffee",
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              //
-            ],
-          ),
-
-
-
-        ),
-      ),
-    );
-  }
-}
-
-class PrivacyPolicyPage extends StatelessWidget {
-  const PrivacyPolicyPage({super.key});
-
-  Future<void> _launchGitHub() async {
-    final Uri url = Uri.parse(
-      'https://github.com/JonathanLam12345/ecobee-csv-analyzer',
-    );
-
-    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
-      throw 'Could not launch $url';
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FB),
-      appBar: _buildConsistentAppBar(context, "privacy"),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 900),
-            child: _buildSectionCard(
-              title: "Privacy Policy",
-              children: [
-                const Text(
-                  '''
-This web app is built as a simple tool to help improve performance and make work easier for the team.
-
-Information Collection:
-• We do not collect or store any personal information from users. Anything you use or enter on this website is not saved in a database or kept anywhere.
-• Please note that an analytics counter is used to only track how many users have interacted with the application.
-
-How the App Works:
-• For the CSV formatter feature, it reads thermostat reports, formats them according to requirements, and automatically saves the final file as an XLSX file onto the user's computer.
-
-This web application is connected to a database only to:
-• Retrieve the most up-to-date version number to ensure users are always using the latest version of the tool
-
-Purpose of the Web App:
-This website is only meant to be a work tool. It is designed to:
-• Help improve productivity
-• Support team workflows
-• Make tasks easier and more efficient
-
-Feedback:
-• Team members can give feedback or suggestions to improve the app.
-
-Data Security:
-• No personal data is stored. Once the application generates the output file and displays analyzed data on the screen, the application does not have access to any data anymore, therefore, nothing is collected or shared.
-                  ''',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.black87,
-                    height: 1.5,
-                  ),
-                ),
-
-                // const SizedBox(height: 20),
-                //
-                // const Text("GitHub Project:"),
-                //
-                // const SizedBox(height: 6),
-                //
-                // GestureDetector(
-                //   onTap: _launchGitHub,
-                //   child: const Text(
-                //     'https://github.com/JonathanLam12345/ecobee-csv-analyzer',
-                //     style: TextStyle(
-                //       fontSize: 14,
-                //       color: Colors.blue,
-                //       decoration: TextDecoration.underline,
-                //     ),
-                //   ),
-                // ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
