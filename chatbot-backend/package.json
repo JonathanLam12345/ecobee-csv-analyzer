@@ -1,0 +1,25 @@
+{
+  "name": "chatbot-backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "tsx src/index.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@genkit-ai/express": "^1.35.0",
+    "@genkit-ai/firebase": "^1.35.0",
+    "@genkit-ai/google-genai": "^1.35.0",
+    "@genkit-ai/googleai": "^1.28.0",
+    "firebase-admin": "^13.10.0",
+    "genkit": "^1.35.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.3",
+    "typescript": "^6.0.3"
+  }
+}
