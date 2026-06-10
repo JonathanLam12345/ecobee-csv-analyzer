@@ -709,7 +709,7 @@ class SupportChatWidget extends StatefulWidget {
 }
 
 class _SupportChatWidgetState extends State<SupportChatWidget> {
-  final TextEditingController _apiKeyController = TextEditingController();
+// final TextEditingController _apiKeyController = TextEditingController();
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
@@ -722,7 +722,7 @@ class _SupportChatWidgetState extends State<SupportChatWidget> {
   final List<ChatMessage> _messages = [
     const ChatMessage(
       role: ChatRole.assistant,
-      text: 'Hi — I can answer questions using the JSON knowledge base once you provide a Gemini API key.',
+      text: 'Hi! I can answer questions using the JSON knowledge base.',
     ),
   ];
 
@@ -754,8 +754,9 @@ class _SupportChatWidgetState extends State<SupportChatWidget> {
 
   Future<void> _sendMessage() async {
     final query = _messageController.text.trim();
-    final apiKey = _apiKeyController.text.trim();
     if (query.isEmpty || _isLoading) return;
+    const apiKey = 'AQ.Ab8RN6I6crVulvFYPaP0S3Am6EAGf_RXHk9W6H0L3jvPAr__eA';
+    /* final apiKey = _apiKeyController.text.trim();
 
     if (apiKey.isEmpty) {
       setState(() {
@@ -766,7 +767,7 @@ class _SupportChatWidgetState extends State<SupportChatWidget> {
       });
       return;
     }
-
+*/
     if (_knowledgeBase.isEmpty) {
       setState(() {
         _messages.add(const ChatMessage(
@@ -887,7 +888,7 @@ class _SupportChatWidgetState extends State<SupportChatWidget> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        TextField(
+/*                        TextField(
                           controller: _apiKeyController,
                           obscureText: true,
                           decoration: InputDecoration(
@@ -905,6 +906,7 @@ class _SupportChatWidgetState extends State<SupportChatWidget> {
                             ),
                           ),
                         ),
+*/
                         const SizedBox(height: 10),
                         Container(
                           width: double.infinity,
