@@ -3,8 +3,8 @@ import 'dart:html' as html;
 
 import 'package:csv/csv.dart';
 import 'package:desktop_drop/desktop_drop.dart';
-import 'package:ecobee_tstat_csv/widgets/chatbot_widget.dart';
 import 'package:ecobee_tstat_csv/widgets/app_bar.dart';
+import 'package:ecobee_tstat_csv/widgets/expandable_section_card.dart';
 import 'package:ecobee_tstat_csv/widgets/section_card.dart';
 import 'package:ecobee_tstat_csv/widgets/tip_text.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
@@ -12,10 +12,9 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:syncfusion_flutter_xlsio/xlsio.dart' as xlsio;
-import 'package:ecobee_tstat_csv/widgets/expandable_section_card.dart';
-import 'package:http/http.dart' as http;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,24 +22,24 @@ void main() async {
   final info = await PackageInfo.fromPlatform();
   final String appVersion = info.version;
 
-  // Pre-load the Material Icons font to prevent missing icons on first load
   final fontLoader = FontLoader('MaterialIcons');
   await fontLoader.load();
 
   await Firebase.initializeApp(
     options: const FirebaseOptions(
-      apiKey: "AIzaSyA9faf7iTLDrH9MHlqr7Ro6SjvSOhMYGlg",
-      authDomain: "ecobee-csv-analyzer.firebaseapp.com",
-      projectId: "ecobee-csv-analyzer",
-      storageBucket: "ecobee-csv-analyzer.firebasestorage.app",
-      messagingSenderId: "296794280928",
-      appId: "1:296794280928:web:c38d5cf609cbfeb56e5185",
-      measurementId: "G-9VLF1JLCVW",
+      apiKey: 'AIzaSyA9faf7iTLDrH9MHlqr7Ro6SjvSOhMYGlg',
+      authDomain: 'ecobee-csv-analyzer.firebaseapp.com',
+      projectId: 'ecobee-csv-analyzer',
+      storageBucket: 'ecobee-csv-analyzer.firebasestorage.app',
+      messagingSenderId: '296794280928',
+      appId: '1:296794280928:web:c38d5cf609cbfeb56e5185',
+      measurementId: 'G-9VLF1JLCVW',
     ),
   );
+
   runApp(
     MaterialApp(
-      title: "ecobee CSV Analyzer",
+      title: 'ecobee CSV Analyzer',
       home: ExcelProcessorApp(version: appVersion),
       debugShowCheckedModeBanner: false,
     ),
@@ -48,11 +47,9 @@ void main() async {
 }
 
 class ExcelProcessorApp extends StatefulWidget {
-  final String version; // Add this line
-  const ExcelProcessorApp({
-    super.key,
-    required this.version,
-  });
+  const ExcelProcessorApp({super.key, required this.version});
+
+  final String version;
 
   @override
   State<ExcelProcessorApp> createState() => _ExcelProcessorAppState();
@@ -64,10 +61,10 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
   bool _isDragging = false;
   bool _isProcessing = false;
   bool _isChatOpen = false;
-  String _statusMessage = "Drag & Drop CSV Here \nor\n Click to Upload";
-  double? _totalFanHours;
 
-  // Add these new variables:
+  String _statusMessage = 'Drag & Drop CSV Here \nor\n Click to Upload';
+
+  double? _totalFanHours;
   double? _totalCool1Hours;
   double? _totalCool2Hours;
   double? _totalHeat1Hours;
@@ -75,21 +72,15 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
   double? _totalAux1Hours;
   double? _totalAux2Hours;
 
-  double? _avgHeatSetTemp;
-  double? _avgCoolSetTemp;
-
   String? _serialNumber;
   String? _thermostatName;
   String? _startDate;
   String? _endDate;
 
   int? _rebootCount;
-  int? _rebootsOnHeat;
-  int? _rebootsOnCool;
-  int? _rebootsOnNone;
-  List _rebootDetails = [];
+  List<String> _rebootDetails = [];
 
-  late String? _latestVersion;
+  String? _latestVersion;
   late DatabaseReference _versionRef;
 
   @override
@@ -100,7 +91,6 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       databaseURL: 'https://ecobee-csv-analyzer-default-rtdb.firebaseio.com/',
     ).ref('version');
 
-    // Listen to changes in real-time
     _versionRef.onValue.listen((DatabaseEvent event) {
       final data = event.snapshot.value;
       if (data != null && mounted) {
@@ -112,19 +102,18 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
   }
 
   void _pickFile() {
-    final html.FileUploadInputElement uploadInput =
-    html.FileUploadInputElement();
+    final html.FileUploadInputElement uploadInput = html.FileUploadInputElement();
     uploadInput.accept = '.csv';
     uploadInput.click();
 
-    uploadInput.onChange.listen((e) {
+    uploadInput.onChange.listen((_) {
       final files = uploadInput.files;
       if (files != null && files.isNotEmpty) {
         final file = files[0];
         analytics.logEvent(name: 'file_picked_manually');
         final reader = html.FileReader();
         reader.readAsArrayBuffer(file);
-        reader.onLoadEnd.listen((e) async {
+        reader.onLoadEnd.listen((_) async {
           final Uint8List bytes = reader.result as Uint8List;
           await _processFile(bytes, file.name);
         });
@@ -132,56 +121,33 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
     });
   }
 
-  // Logic to show the chatbot as a pop-up
-  void _showChatbotPopup() {
-    showDialog(
-      context: context,
-      barrierColor: Colors.black.withOpacity(0.2),
-      // Dim the background slightly
-      builder: (BuildContext context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20)),
-          alignment: Alignment.bottomRight, // Position it near the FAB
-          insetPadding: const EdgeInsets.only(right: 20, bottom: 80),
-          child: const SizedBox(
-            width: 400,
-            height: 500,
-            child: ChatbotWidget(),
-          ),
-        );
-      },
-    );
-  }
-
-
   Future<void> _processFile(Uint8List bytes, String fileName) async {
     setState(() {
       _isProcessing = true;
-      _statusMessage = "Processing CSV...";
+      _statusMessage = 'Processing CSV...';
     });
-    await analytics.logEvent(name: 'process_file_start');
 
+    await analytics.logEvent(name: 'process_file_start');
     await Future.delayed(const Duration(milliseconds: 100));
+
     xlsio.Workbook? workbook;
 
     try {
       final String content = utf8.decode(bytes, allowMalformed: true);
-      final List<List<dynamic>> csvRows = CsvToListConverter(
+      final List<List<dynamic>> csvRows = const CsvToListConverter(
         shouldParseNumbers: false,
         fieldDelimiter: ',',
         eol: '\n',
         allowInvalid: true,
       ).convert(content);
 
-      if (csvRows.isEmpty) throw Exception("File is empty");
+      if (csvRows.isEmpty) {
+        throw Exception('File is empty');
+      }
 
       workbook = xlsio.Workbook();
       final xlsio.Worksheet sheet = workbook.worksheets[0];
-      int? fanSecIndex;
-      double totalFanSeconds = 0;
 
-      // 1. Reset variables at the start of processing
       _totalCool1Hours = null;
       _totalCool2Hours = null;
       _totalHeat1Hours = null;
@@ -189,460 +155,214 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       _totalAux1Hours = null;
       _totalAux2Hours = null;
 
-      _avgHeatSetTemp = null;
-      _avgCoolSetTemp = null;
-      _rebootsOnHeat = null;
-      _rebootsOnCool = null;
-      _rebootsOnNone = null;
-
       int rebootCounter = 0;
-      int rebootsOnHeatCounter = 0;
-      int rebootsOnCoolCounter = 0;
-      int rebootsOnNoneCounter = 0;
       bool inRebootPeriod = false;
-      List<Map<String, String>> currentRebootDetails = [];
-      String rebootStartDate = "";
-      String rebootStartTime = "";
+      final List<String> currentRebootDetails = [];
+      String rebootStartDate = '';
+      String rebootStartTime = '';
 
-// Track the runtime state of the LAST valid row
-      bool lastStateWasHeating = false;
-      bool lastStateWasCooling = false;
-
-// Find the runtime column indexes early so we can evaluate equipment state
-      List<dynamic> earlyHeaderRow = csvRows.length >= 6 ? csvRows[5] : <dynamic>[];
-      int rCool1Idx = earlyHeaderRow.indexOf("Cool Stage 1 (sec)");
-      int rCool2Idx = earlyHeaderRow.indexOf("Cool Stage 2 (sec)");
-      int rHeat1Idx = earlyHeaderRow.indexOf("Heat Stage 1 (sec)");
-      int rHeat2Idx = earlyHeaderRow.indexOf("Heat Stage 2 (sec)");
-      int rAux1Idx = earlyHeaderRow.indexOf("Aux Heat 1 (sec)");
-      int rAux2Idx = earlyHeaderRow.indexOf("Aux Heat 2 (sec)");
-
-
-      // Start processing data from Row 7 (index 6)
       for (int i = 6; i < csvRows.length; i++) {
-        List<dynamic> row = csvRows[i];
-
-        // Skip rows that are too short to have Column K
+        final row = csvRows[i];
         if (row.length < 11) continue;
 
-        // Column C is index 2 | Column K is index 10
-        String colC = row[2]?.toString().trim() ?? "";
-        String colK = row[10]?.toString().trim() ?? "";
+        final String colC = row[2].toString().trim();
+        final String colK = row[10].toString().trim();
 
-        // A REBOOT ROW: Column C is blank, but Column K HAS data
-        bool isRebootRow = colC.isEmpty && colK.isNotEmpty;
+        final bool isRebootRow = colC.isEmpty && colK.isNotEmpty;
+        final bool isOnline = colC.isNotEmpty;
 
-        // AN ONLINE ROW: Column C has actual system data
-        bool isOnline = colC.isNotEmpty;
-
-        if (isRebootRow) {
-          if (!inRebootPeriod) {
-            // Grab the date and time when the power loss STARTS
-            rebootStartDate = row[0]?.toString() ?? "";
-            rebootStartTime = row[1]?.toString() ?? "";
-          }
-          // The thermostat has lost power/connection.
-          // We DO NOT count it yet, we just mark that it went down.
+        if (isRebootRow && !inRebootPeriod) {
+          rebootStartDate = row[0].toString();
+          rebootStartTime = row[1].toString();
           inRebootPeriod = true;
-        } else if (isOnline) {
-          // The thermostat is successfully reporting data.
-          if (inRebootPeriod) {
-            rebootCounter++;
-
-            // Evaluate the equipment state right before the reboot happened
-            String rebootType = "None";
-            if (lastStateWasHeating) {
-              rebootType = "Heat";
-              rebootsOnHeatCounter++;
-            } else if (lastStateWasCooling) {
-              rebootType = "Cool";
-              rebootsOnCoolCounter++;
-            } else {
-              rebootsOnNoneCounter++;
-            }
-
-            // Save the structured data
-            currentRebootDetails.add({
-              'date': rebootStartDate,
-              'time': rebootStartTime,
-              'type': rebootType
-            });
-          }
-
-          // Reset the flag so we can catch the next gap
+        } else if (isOnline && inRebootPeriod) {
+          rebootCounter++;
+          currentRebootDetails.add('$rebootStartDate $rebootStartTime');
           inRebootPeriod = false;
-
-          // --- Check THIS row's runtimes to save for the NEXT potential reboot ---
-          double c1 = 0, c2 = 0, h1 = 0, h2 = 0, a1 = 0, a2 = 0;
-
-          if (rCool1Idx != -1 && rCool1Idx < row.length) c1 = double.tryParse(row[rCool1Idx].toString()) ?? 0;
-          if (rCool2Idx != -1 && rCool2Idx < row.length) c2 = double.tryParse(row[rCool2Idx].toString()) ?? 0;
-          if (rHeat1Idx != -1 && rHeat1Idx < row.length) h1 = double.tryParse(row[rHeat1Idx].toString()) ?? 0;
-          if (rHeat2Idx != -1 && rHeat2Idx < row.length) h2 = double.tryParse(row[rHeat2Idx].toString()) ?? 0;
-          if (rAux1Idx != -1 && rAux1Idx < row.length) a1 = double.tryParse(row[rAux1Idx].toString()) ?? 0;
-          if (rAux2Idx != -1 && rAux2Idx < row.length) a2 = double.tryParse(row[rAux2Idx].toString()) ?? 0;
-
-          lastStateWasCooling = (c1 > 0 || c2 > 0);
-          lastStateWasHeating = (h1 > 0 || h2 > 0 || a1 > 0 || a2 > 0);
-
         }
       }
-      // --------------------------------------
 
-      // Update state at the end of processing
-      setState(() {
-        _rebootCount = rebootCounter;
-        _rebootsOnHeat = rebootsOnHeatCounter;
-        _rebootsOnCool = rebootsOnCoolCounter;
-        _rebootsOnNone = rebootsOnNoneCounter;
-        _rebootDetails = currentRebootDetails;
-      });
-
-
-      //csvRows[0].length >= 4
-      // This counts the number of items (columns) inside that specific row.
       if (csvRows.length >= 4 &&
           csvRows[0].length >= 4 &&
           csvRows[1].length >= 4 &&
           csvRows[2].length >= 4 &&
           csvRows[3].length >= 4) {
-
         _serialNumber = csvRows[0][3].toString();
         _thermostatName = csvRows[1][3].toString();
         _startDate = csvRows[2][3].toString();
         _endDate = csvRows[3][3].toString();
       }
 
-      List<int> columnsToSkip = [];
+      int? fanSecIndex;
+      double totalFanSeconds = 0;
+      double totalCool1Seconds = 0;
+      double totalCool2Seconds = 0;
+      double totalHeat1Seconds = 0;
+      double totalHeat2Seconds = 0;
+      double totalAux1Seconds = 0;
+      double totalAux2Seconds = 0;
+      final List<int> columnsToSkip = [];
 
-      //csvRows.length >= 6
-      //Counts the num of rows
-// Counts the num of rows
       if (csvRows.length >= 6) {
-        List<dynamic> headerRow = csvRows[5];
+        final headerRow = csvRows[5];
 
-        // 1. Find indexes (-1 means it didn't find the column)
-        int cool1Idx = headerRow.indexOf("Cool Stage 1 (sec)");
-        int cool2Idx = headerRow.indexOf("Cool Stage 2 (sec)");
-        int heat1Idx = headerRow.indexOf("Heat Stage 1 (sec)");
-        int heat2Idx = headerRow.indexOf("Heat Stage 2 (sec)");
-        int aux1Idx = headerRow.indexOf("Aux Heat 1 (sec)");
-        int aux2Idx = headerRow.indexOf("Aux Heat 2 (sec)");
-
-        int heatSetTempIdx = -1;
-        int coolSetTempIdx = -1;
+        final int cool1Idx = headerRow.indexOf('Cool Stage 1 (sec)');
+        final int cool2Idx = headerRow.indexOf('Cool Stage 2 (sec)');
+        final int heat1Idx = headerRow.indexOf('Heat Stage 1 (sec)');
+        final int heat2Idx = headerRow.indexOf('Heat Stage 2 (sec)');
+        final int aux1Idx = headerRow.indexOf('Aux Heat 1 (sec)');
+        final int aux2Idx = headerRow.indexOf('Aux Heat 2 (sec)');
 
         for (int j = 0; j < headerRow.length; j++) {
-          String headerText = headerRow[j].toString().toLowerCase().trim();
-          if (headerText.contains("wind speed (km/h)")) {
+          final String headerText = headerRow[j].toString().toLowerCase().trim();
+          if (headerText.contains('wind speed (km/h)')) {
             columnsToSkip.add(j);
           }
-          if (headerRow[j].toString().trim() == "Fan (sec)") {
+          if (headerRow[j].toString().trim() == 'Fan (sec)') {
             fanSecIndex = j;
           }
-          if (headerText.contains("heat set temp")) {
-            heatSetTempIdx = j;
-          }
-          if (headerText.contains("cool set temp")) {
-            coolSetTempIdx = j;
-          }
         }
-
-        // Variables to hold the raw second counts while we loop
-        double totalCool1Seconds = 0;
-        double totalCool2Seconds = 0;
-        double totalHeat1Seconds = 0;
-        double totalHeat2Seconds = 0;
-        double totalAux1Seconds = 0;
-        double totalAux2Seconds = 0;
-
-
-        double sumHeatSetTemp = 0;
-        int countHeatSetTemp = 0;
-        double sumCoolSetTemp = 0;
-        int countCoolSetTemp = 0;
-        List<List<dynamic>> dataRows = csvRows.sublist(6);
-
-        // =========================================================
-        // NOTICE HOW THE LOOP IS NOW INSIDE THIS IF BLOCK
-        // =========================================================
 
         for (int i = 6; i < csvRows.length; i++) {
+          final row = csvRows[i];
 
-          // Fan
-          if (fanSecIndex != null && fanSecIndex! < csvRows[i].length) {
-            final double? val = double.tryParse(csvRows[i][fanSecIndex!].toString());
-            if (val != null) totalFanSeconds += val;
+          if (fanSecIndex != null && fanSecIndex < row.length) {
+            totalFanSeconds += double.tryParse(row[fanSecIndex].toString()) ?? 0;
           }
-
-          // Cool Stage 1 (Checking for != -1 instead of null)
-          if (cool1Idx != -1 && cool1Idx < csvRows[i].length) {
-            final double? val = double.tryParse(csvRows[i][cool1Idx].toString());
-            if (val != null) totalCool1Seconds += val;
+          if (cool1Idx != -1 && cool1Idx < row.length) {
+            totalCool1Seconds += double.tryParse(row[cool1Idx].toString()) ?? 0;
           }
-
-          // Cool Stage 2
-          if (cool2Idx != -1 && cool2Idx < csvRows[i].length) {
-            final double? val = double.tryParse(csvRows[i][cool2Idx].toString());
-            if (val != null) totalCool2Seconds += val;
+          if (cool2Idx != -1 && cool2Idx < row.length) {
+            totalCool2Seconds += double.tryParse(row[cool2Idx].toString()) ?? 0;
           }
-
-          // Heat Stage 1
-          if (heat1Idx != -1 && heat1Idx < csvRows[i].length) {
-            final double? val = double.tryParse(csvRows[i][heat1Idx].toString());
-            if (val != null) totalHeat1Seconds += val;
+          if (heat1Idx != -1 && heat1Idx < row.length) {
+            totalHeat1Seconds += double.tryParse(row[heat1Idx].toString()) ?? 0;
           }
-
-          // Heat Stage 2
-          if (heat2Idx != -1 && heat2Idx < csvRows[i].length) {
-            final double? val = double.tryParse(csvRows[i][heat2Idx].toString());
-            if (val != null) totalHeat2Seconds += val;
+          if (heat2Idx != -1 && heat2Idx < row.length) {
+            totalHeat2Seconds += double.tryParse(row[heat2Idx].toString()) ?? 0;
           }
-
-          // Aux Heat 1
-          if (aux1Idx != -1 && aux1Idx < csvRows[i].length) {
-            final double? val = double.tryParse(csvRows[i][aux1Idx].toString());
-            if (val != null) totalAux1Seconds += val;
+          if (aux1Idx != -1 && aux1Idx < row.length) {
+            totalAux1Seconds += double.tryParse(row[aux1Idx].toString()) ?? 0;
           }
-
-          // Aux Heat 2
-          if (aux2Idx != -1 && aux2Idx < csvRows[i].length) {
-            final double? val = double.tryParse(csvRows[i][aux2Idx].toString());
-            if (val != null) totalAux2Seconds += val;
+          if (aux2Idx != -1 && aux2Idx < row.length) {
+            totalAux2Seconds += double.tryParse(row[aux2Idx].toString()) ?? 0;
           }
-
-
-          if (heatSetTempIdx != -1 && heatSetTempIdx < csvRows[i].length) {
-            final double? val = double.tryParse(csvRows[i][heatSetTempIdx].toString());
-            if (val != null) {
-              sumHeatSetTemp += val;
-              countHeatSetTemp++;
-            }
-          }
-
-
-          if (coolSetTempIdx != -1 && coolSetTempIdx < csvRows[i].length) {
-            final double? val = double.tryParse(csvRows[i][coolSetTempIdx].toString());
-            if (val != null) {
-              sumCoolSetTemp += val;
-              countCoolSetTemp++;
-            }
-          }
-
-
-
-
-
-
         }
 
-        // Don't forget to set your state right here before the block closes!
-        setState(() {
-          if (fanSecIndex != null) _totalFanHours = totalFanSeconds / 3600;
-          if (cool1Idx != -1) _totalCool1Hours = totalCool1Seconds / 3600;
-          if (cool2Idx != -1) _totalCool2Hours = totalCool2Seconds / 3600;
-          if (heat1Idx != -1) _totalHeat1Hours = totalHeat1Seconds / 3600;
-          if (heat2Idx != -1) _totalHeat2Hours = totalHeat2Seconds / 3600;
-          if (aux1Idx != -1) _totalAux1Hours = totalAux1Seconds / 3600;
-          if (aux2Idx != -1) _totalAux2Hours = totalAux2Seconds / 3600;
-
-          if (countHeatSetTemp > 0) _avgHeatSetTemp = sumHeatSetTemp / countHeatSetTemp;
-          if (countCoolSetTemp > 0) _avgCoolSetTemp = sumCoolSetTemp / countCoolSetTemp;
-
-        });
-
-      } // <-- The entire csvRows.length >= 6 block finally closes here!
-
+        if (fanSecIndex != null) _totalFanHours = totalFanSeconds / 3600;
+        if (cool1Idx != -1) _totalCool1Hours = totalCool1Seconds / 3600;
+        if (cool2Idx != -1) _totalCool2Hours = totalCool2Seconds / 3600;
+        if (heat1Idx != -1) _totalHeat1Hours = totalHeat1Seconds / 3600;
+        if (heat2Idx != -1) _totalHeat2Hours = totalHeat2Seconds / 3600;
+        if (aux1Idx != -1) _totalAux1Hours = totalAux1Seconds / 3600;
+        if (aux2Idx != -1) _totalAux2Hours = totalAux2Seconds / 3600;
+      }
 
       int maxColumns = 0;
       double maxHeaderLength = 0;
       bool hasLongCalendarContent = false;
 
       for (int i = 0; i < csvRows.length; i++) {
-        final List<dynamic> rowData = csvRows[i];
+        final rowData = csvRows[i];
         int targetCol = 1;
 
         for (int j = 0; j < rowData.length; j++) {
           if (columnsToSkip.contains(j)) continue;
-          final dynamic rawValue = rowData[j];
-          final String cellText = rawValue?.toString() ?? "";
+          final String cellText = rowData[j].toString();
 
           if (i == 5) {
             String? hexColor;
-            if (cellText.contains("Cool Set Temp")) {
+            if (cellText.contains('Cool Set Temp')) {
               hexColor = '#496daf';
-            } else if (cellText.contains("Heat Set Temp")) {
+            } else if (cellText.contains('Heat Set Temp')) {
               hexColor = '#fe4949';
-            } else if (cellText.contains("Current Temp") ||
-                cellText.contains("Thermostat Temperature")) {
+            } else if (cellText.contains('Current Temp') ||
+                cellText.contains('Thermostat Temperature')) {
               hexColor = '#ffff00';
             }
 
             if (targetCol > 4) {
-              final xlsio.Range headerRange = sheet.getRangeByIndex(
-                1,
-                targetCol,
-                6,
-                targetCol,
-              );
+              final xlsio.Range headerRange = sheet.getRangeByIndex(1, targetCol, 6, targetCol);
               headerRange.merge();
               headerRange.setText(cellText);
               headerRange.cellStyle.rotation = 90;
               headerRange.cellStyle.vAlign = xlsio.VAlignType.bottom;
               headerRange.cellStyle.hAlign = xlsio.HAlignType.center;
               if (hexColor != null) headerRange.cellStyle.backColor = hexColor;
-
-              double length = cellText.length.toDouble();
+              final double length = cellText.length.toDouble();
               if (length > maxHeaderLength) maxHeaderLength = length;
             } else {
               final cellRange = sheet.getRangeByIndex(i + 1, targetCol);
               cellRange.setText(cellText);
               if (hexColor != null) cellRange.cellStyle.backColor = hexColor;
             }
-          } else if (i >= 6 || targetCol <= 4) {
+          } else {
             final cellRange = sheet.getRangeByIndex(i + 1, targetCol);
-            if (i == 0 && j == 3) {
-              cellRange.setText(cellText);
+            final double? numericValue = double.tryParse(cellText);
+
+            if (numericValue != null) {
+              cellRange.setNumber(numericValue);
             } else {
-              final double? numericValue = double.tryParse(cellText);
+              cellRange.setText(cellText);
+            }
 
-              if (numericValue != null) {
-                cellRange.setNumber(numericValue);
-                final String currentHeader =
-                    sheet.getRangeByIndex(6, targetCol).getText()?.trim() ?? "";
-                if (currentHeader == "Heat Stage 1 (sec)" && numericValue > 0) {
-                  cellRange.cellStyle.backColor = '#ffe5e8';
-                } else if (currentHeader == "Heat Stage 2 (sec)" &&
-                    numericValue > 0) {
-                  cellRange.cellStyle.backColor = '#ffe5e8';
-                } else if (currentHeader == "Aux Heat 1 (sec)" &&
-                    numericValue > 0) {
-                  cellRange.cellStyle.backColor = '#ffe5e8';
-                } else if (currentHeader == "Aux Heat 2 (sec)" &&
-                    numericValue > 0) {
-                  cellRange.cellStyle.backColor = '#ffe5e8';
-                } else if (currentHeader == "Fan (sec)" && numericValue > 0) {
-                  cellRange.cellStyle.backColor = '#c6e0b4';
-                } else if (currentHeader == "Cool Stage 1 (sec)" &&
-                    numericValue > 0) {
-                  cellRange.cellStyle.backColor = '#cadff2';
-                }
-              } else {
-                cellRange.setText(cellText);
-              }
-
-              if (numericValue != null) {
-                cellRange.setNumber(numericValue);
-              } else {
-                cellRange.setText(cellText);
-              }
-
-              if (i >= 6) {
-                if (targetCol == 3) {
-                  //System Setting
-                  if (cellText == "heat") {
-                    cellRange.cellStyle.backColor = '#ffe699';
-                    cellRange.cellStyle.fontColor = '#a51a18';
-                  } else if (cellText == "off") {
-                    cellRange.cellStyle.backColor = '#e6f1df';
-                    cellRange.cellStyle.fontColor = '#a51a18';
-                  } else if (cellText == "auto") {
-                    cellRange.cellStyle.backColor = '#CBC3E3';
-                  } else if (cellText == "cool") {
-                    cellRange.cellStyle.backColor = '#8ea9db';
-                  }
-                } else if (targetCol == 4) {
-                  //System Mode
-                  if (cellText == "heatOff") {
-                    cellRange.cellStyle.backColor = '#ffe8ea';
-                  } else if (cellText == "heatStage1On") {
-                    cellRange.cellStyle.backColor = '#ffe5e8';
-                  } else if (cellText == "heatStage1Off") {
-                    cellRange.cellStyle.backColor = '#ffe8eb';
-                  } else if (cellText == "compressorHeatStage1On") {
-                    cellRange.cellStyle.backColor = '#ffe5e8';
-                  } else if (cellText == "compressorHeatStage1Off") {
-                    //not sure if this exist
-                    cellRange.cellStyle.backColor = '#ffe8eb';
-                  } else if (cellText == "compressorHeatOff") {
-                    cellRange.cellStyle.backColor = '#ffe8eb';
-                  } else if (cellText == "compressorCoolStage1On") {
-                    cellRange.cellStyle.backColor = '#cadff2';
-                  } else if (cellText == "compressorCoolOff") {
-                    cellRange.cellStyle.backColor = '#c0cfea';
-                  }
-                } else if (targetCol == 5) {
-                  //Calendar Event
-                  if (cellText.contains("smartHome")) {
-                    cellRange.cellStyle.backColor = '#f7c8ab';
-                  } else if (cellText.contains("smartAway")) {
-                    cellRange.cellStyle.backColor = '#d3b5e9';
-                  } else if (cellText.contains("hold")) {
-                    cellRange.cellStyle.backColor = '#c0d5ab';
-                  } else if (cellText.contains("auto")) {
-                    cellRange.cellStyle.backColor = '#a4fef5';
-                  } else if (cellText.contains("(SmartRecovery)")) {
-                    cellRange.cellStyle.backColor = '#c6e0b4';
-                  }
-                  if (cellText.length > 4) hasLongCalendarContent = true;
-                } else if (targetCol == 6) {
-                  //Program Mode
-                  if (cellText == "Sleep") {
-                    cellRange.cellStyle.backColor = '#a9d08e';
-                  } else if (cellText == "Away") {
-                    cellRange.cellStyle.backColor = '#cdace6';
-                  } else if (cellText == "Home") {
-                    cellRange.cellStyle.backColor = '#bdd7ee';
-                  }
-                }
+            if (i >= 6) {
+              if (targetCol == 5 && cellText.length > 4) {
+                hasLongCalendarContent = true;
               }
             }
           }
+
           if (targetCol > maxColumns) maxColumns = targetCol;
           targetCol++;
         }
       }
 
-      double calculatedHeight = (maxHeaderLength * 3.2).clamp(20.0, 120.0);
+      final double calculatedHeight = (maxHeaderLength * 3.2).clamp(20.0, 120.0);
       sheet.setRowHeightInPixels(6, calculatedHeight);
 
       for (int col = 1; col <= maxColumns; col++) {
         sheet.autoFitColumn(col);
         final xlsio.Range colRange = sheet.getRangeByIndex(6, col);
-        final String headerText = colRange.getText() ?? "";
-        if (headerText.contains("Calendar Event") && hasLongCalendarContent) {
-          double autoWidth = colRange.columnWidth;
+        final String headerText = colRange.getText() ?? '';
+        if (headerText.contains('Calendar Event') && hasLongCalendarContent) {
+          final double autoWidth = colRange.columnWidth;
           colRange.columnWidth = autoWidth / 2;
         }
       }
-      sheet
-          .getRangeByIndex(1, 4)
-          .cellStyle
-          .backColor = '#ffff00';
-      if (csvRows.length >= 7) sheet.getRangeByIndex(7, 1).freezePanes();
+
+      sheet.getRangeByIndex(1, 4).cellStyle.backColor = '#ffff00';
+      if (csvRows.length >= 7) {
+        sheet.getRangeByIndex(7, 1).freezePanes();
+      }
 
       final List<int> outBytes = workbook.saveAsStream();
-      final blob = html.Blob([
-        outBytes,
-      ], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      final blob = html.Blob(
+        [outBytes],
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
       final url = html.Url.createObjectUrlFromBlob(blob);
 
-      String baseName = fileName.replaceAll(
-        RegExp(r'\.(csv|xlsx)$', caseSensitive: false),
-        '',
-      );
-      String downloadName = "$baseName(new).xlsx";
+      final String baseName = fileName.replaceAll(RegExp(r'\.(csv|xlsx)$', caseSensitive: false), '');
+      final String downloadName = '$baseName(new).xlsx';
 
       html.AnchorElement(href: url)
-        ..setAttribute("download", downloadName)
+        ..setAttribute('download', downloadName)
         ..click();
       html.Url.revokeObjectUrl(url);
 
       await analytics.logEvent(name: 'process_file_success');
-      setState(() => _statusMessage = "Conversion Successful!");
-      await Future.delayed(const Duration(seconds: 3));
+
       setState(() {
-        _statusMessage = "Drag & Drop CSV Here \nor\n Click to Upload";
+        _rebootCount = rebootCounter;
+        _rebootDetails = currentRebootDetails;
+        _statusMessage = 'Conversion Successful!';
+      });
+
+      await Future.delayed(const Duration(seconds: 3));
+
+      setState(() {
+        _statusMessage = 'Drag & Drop CSV Here \nor\n Click to Upload';
         _isDragging = false;
         _isProcessing = false;
       });
@@ -651,749 +371,333 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
         name: 'process_file_error',
         parameters: {'file_name': fileName, 'error': e.toString()},
       );
-      setState(() => _statusMessage = "Error: ${e.toString()}");
+      setState(() {
+        _statusMessage = 'Error: ${e.toString()}';
+      });
     } finally {
       workbook?.dispose();
-      setState(() => _isProcessing = false);
+      setState(() {
+        _isProcessing = false;
+      });
     }
   }
 
   bool _isUpToDate(String local, String remote) {
     try {
-      List<int> localParts = local
-          .split('.')
-          .map((e) => int.tryParse(e) ?? 0)
-          .toList();
-      List<int> remoteParts = remote
-          .split('.')
-          .map((e) => int.tryParse(e) ?? 0)
-          .toList();
-
-      int maxLength = localParts.length > remoteParts.length
-          ? localParts.length
-          : remoteParts.length;
+      final List<int> localParts = local.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+      final List<int> remoteParts = remote.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+      final int maxLength = localParts.length > remoteParts.length ? localParts.length : remoteParts.length;
 
       for (int i = 0; i < maxLength; i++) {
-        int localSegment = i < localParts.length ? localParts[i] : 0;
-        int remoteSegment = i < remoteParts.length ? remoteParts[i] : 0;
-
-        if (localSegment > remoteSegment) return true; // Local is ahead
-        if (localSegment < remoteSegment) return false; // Local is behind
+        final int localSegment = i < localParts.length ? localParts[i] : 0;
+        final int remoteSegment = i < remoteParts.length ? remoteParts[i] : 0;
+        if (localSegment > remoteSegment) return true;
+        if (localSegment < remoteSegment) return false;
       }
-      return true; // Versions are equal
-    } catch (e) {
-      return local == remote; // Fallback to simple string check on error
+      return true;
+    } catch (_) {
+      return local == remote;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    String displayVersionText = "Version ${widget.version}";
+    String displayVersionText = 'Version ${widget.version}';
     Color versionColor = Colors.blueGrey.shade300;
     FontWeight versionWeight = FontWeight.w400;
 
     if (_latestVersion != null) {
-      bool upToDate = _isUpToDate(widget.version, _latestVersion!);
+      final bool upToDate = _isUpToDate(widget.version, _latestVersion!);
       if (upToDate) {
-        displayVersionText = "Version ${widget.version} (latest)";
+        displayVersionText = 'Version ${widget.version} (latest)';
         versionColor = Colors.green.shade600;
-        versionWeight = FontWeight.w400;
       } else {
-        displayVersionText = "Version ${widget.version} (Click to update)";
+        displayVersionText = 'Version ${widget.version} (Click to update)';
         versionColor = Colors.redAccent;
         versionWeight = FontWeight.w600;
       }
     }
 
     return Scaffold(
-        appBar: ConsistentAppBar(currentPage: "Home"),
-        backgroundColor: const Color(0xFFF8F9FB),
-
-        // ... (Rest of your SingleChildScrollView body)
-        body: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 900),
-              child: Column(
-                children: [
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 8.0),
+      appBar: const ConsistentAppBar(currentPage: 'Home'),
+      backgroundColor: const Color(0xFFF8F9FB),
+      body: Stack(
+        children: [
+          SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 900),
+                child: Column(
+                  children: [
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 8.0),
+                        child: MouseRegion(
+                          cursor: (_latestVersion != null && !_isUpToDate(widget.version, _latestVersion!))
+                              ? SystemMouseCursors.click
+                              : SystemMouseCursors.basic,
+                          child: GestureDetector(
+                            onTap: () {
+                              if (_latestVersion != null && !_isUpToDate(widget.version, _latestVersion!)) {
+                                html.window.location.reload();
+                              }
+                            },
+                            child: Text(
+                              displayVersionText,
+                              style: TextStyle(
+                                color: versionColor,
+                                fontSize: 12,
+                                fontWeight: versionWeight,
+                                decoration: (_latestVersion != null &&
+                                        !_isUpToDate(widget.version, _latestVersion!))
+                                    ? TextDecoration.underline
+                                    : TextDecoration.none,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    SectionCard(
+                      title: 'About CSV Analyzer',
+                      children: [
+                        Text(
+                          'A web app designed to transform raw ecobee thermostat system monitoring data into a clear and readable report for faster and more accurate diagnostics.',
+                          style: TextStyle(color: Colors.blueGrey.shade600, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    DropTarget(
+                      onDragDone: (details) async {
+                        if (details.files.isNotEmpty) {
+                          final file = details.files.first;
+                          analytics.logEvent(name: 'file_dropped');
+                          final bytes = await file.readAsBytes();
+                          await _processFile(bytes, file.name);
+                        }
+                      },
+                      onDragEntered: (_) => setState(() => _isDragging = true),
+                      onDragExited: (_) => setState(() => _isDragging = false),
                       child: MouseRegion(
-                        // The cursor will now correctly show the pointer/hand
-                        cursor:
-                        (_latestVersion != null &&
-                            !_isUpToDate(widget.version, _latestVersion!))
-                            ? SystemMouseCursors.click
-                            : SystemMouseCursors.basic,
+                        cursor: SystemMouseCursors.click,
                         child: GestureDetector(
-                          onTap: () {
-                            if (_latestVersion != null &&
-                                !_isUpToDate(widget.version, _latestVersion!)) {
-                              html.window.location.reload();
-                            }
-                          },
-                          child: Text(
-                            // Changed from SelectableText to Text
-                            displayVersionText,
-                            style: TextStyle(
-                              color: versionColor,
-                              fontSize: 12,
-                              fontWeight: versionWeight,
-                              decoration:
-                              (_latestVersion != null &&
-                                  !_isUpToDate(
-                                    widget.version,
-                                    _latestVersion!,
-                                  ))
-                                  ? TextDecoration.underline
-                                  : TextDecoration.none,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  SectionCard(
-                    title: "About CSV Analyzer",
-                    children: [
-                      Text(
-                        "A web app designed to transform raw ecobee thermostat system monitoring data into a clear and readable report for faster and more accurate diagnostics.",
-                        style: TextStyle(
-                          color: Colors.blueGrey.shade600,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  DropTarget(
-                    onDragDone: (details) async {
-                      if (details.files.isNotEmpty) {
-                        final file = details.files.first;
-                        analytics.logEvent(name: 'file_dropped');
-                        final bytes = await file.readAsBytes();
-                        await _processFile(bytes, file.name);
-                      }
-                    },
-                    onDragEntered: (details) =>
-                        setState(() => _isDragging = true),
-                    onDragExited: (details) =>
-                        setState(() => _isDragging = false),
-                    child: MouseRegion(
-                      cursor: SystemMouseCursors.click,
-                      child: GestureDetector(
-                        onTap: _pickFile,
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          height: 200,
-                          width: 420,
-                          decoration: BoxDecoration(
-                            color: _isDragging
-                                ? Colors.blue.withOpacity(0.05)
-                                : Colors.white,
-                            borderRadius: BorderRadius.circular(24),
-                            border: Border.all(
-                              color: _isDragging
-                                  ? Colors.blueAccent
-                                  : Colors.blueGrey.shade200,
-                              width: 2,
-                            ),
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              if (_isProcessing)
-                                const CircularProgressIndicator()
-                              else
-                                Icon(
-                                  Icons.upload_file_rounded,
-                                  size: 80,
-                                  color: _isDragging
-                                      ? Colors.blueAccent
-                                      : Colors.blueGrey[200],
-                                ),
-                              const SizedBox(height: 20),
-                              Text(
-                                _statusMessage,
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // ==========================================
-                  // 1. THERMOSTAT REPORT SUMMARY CARD
-                  // ==========================================
-                  if (_serialNumber != null)
-                    ExpandableSectionCard(
-                      maxWidth: 700,
-                      title: "Thermostat Report Summary",
-                      titleBackgroundColor: Colors.grey.shade300,
-                      titleColor: Colors.black,
-                      initiallyExpanded: true,
-                      children: [
-                        Align(
-                          alignment: Alignment.center,
-                          child: FractionallySizedBox(
-                            widthFactor: 0.60,
-                            child: Container(
-                              margin: const EdgeInsets.only(bottom: 8),
-                              padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFFFFF00),
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: Colors.black12),
-                              ),
-                              child: TipText(
-                                "Thermostat Serial Number: $_serialNumber",
-                                textAlign: TextAlign.center,
+                          onTap: _pickFile,
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            height: 200,
+                            width: 420,
+                            decoration: BoxDecoration(
+                              color: _isDragging ? Colors.blue.withOpacity(0.05) : Colors.white,
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(
+                                color: _isDragging ? Colors.blueAccent : Colors.blueGrey.shade200,
+                                width: 2,
                               ),
                             ),
-                          ),
-                        ),
-                        Align(
-                          alignment: Alignment.center,
-                          child: FractionallySizedBox(
-                            widthFactor: 0.60,
-                            child: Container(
-                              margin: const EdgeInsets.only(bottom: 8),
-                              padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFFFFF00),
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: Colors.black12),
-                              ),
-                              child: TipText(
-                                "Thermostat Name: $_thermostatName",
-                                textAlign: TextAlign.center,
-                              ),
-                            ),
-                          ),
-                        ),
-
-
-                        if (_startDate != null)
-                          Align(
-                            alignment: Alignment.center,
-                            child: FractionallySizedBox(
-                              widthFactor: 0.60,
-                              child: Container(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFFFFF00),
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: Colors.black12),
-                                ),
-                                child: TipText(
-                                  "Start Date: $_startDate",
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                if (_isProcessing)
+                                  const CircularProgressIndicator()
+                                else
+                                  Icon(
+                                    Icons.upload_file_rounded,
+                                    size: 80,
+                                    color: _isDragging ? Colors.blueAccent : Colors.blueGrey[200],
+                                  ),
+                                const SizedBox(height: 20),
+                                Text(
+                                  _statusMessage,
                                   textAlign: TextAlign.center,
+                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                                 ),
-                              ),
+                              ],
                             ),
                           ),
-
-                        if (_endDate != null)
-                          Align(
-                            alignment: Alignment.center,
-                            child: FractionallySizedBox(
-                              widthFactor: 0.60,
-                              child: Container(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFFFFF00),
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: Colors.black12),
-                                ),
-                                child: TipText(
-                                  "End Date: $_endDate",
-                                  textAlign: TextAlign.center,
-                                ),
-                              ),
-                            ),
-                          ),
-
-
-                      ],
-                    ),
-
-                  // ==========================================
-                  // 2. HVAC SYSTEM RUNTIME CARD
-                  // ==========================================
-                  if (_serialNumber != null)
-                    ExpandableSectionCard(
-                      maxWidth: 700,
-                      title: "Overall Stats",
-                      titleBackgroundColor: Colors.blueGrey.shade100, // Giving this its own header color
-                      titleColor: Colors.black,
-                      initiallyExpanded: true,
-                      children: [
-
-
-                        Text("Runtimes:"),
-                        if (_totalFanHours != null)
-                          Align(
-                            alignment: Alignment.center,
-                            child: FractionallySizedBox(
-                              widthFactor: 0.60,
-                              child: Container(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFC6E0B4),
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: Colors.black12),
-                                ),
-                                child: TipText(
-                                  "Total Fan Runtime: ${(_totalFanHours! * 3600).toInt()} seconds (${_totalFanHours!.toStringAsFixed(2)} hours)",                                  textAlign: TextAlign.center,
-                                ),
-                              ),
-                            ),
-                          ),
-
-
-
-
-                        // COOLING STAGES
-                        if (_totalCool1Hours != null)
-                          Align(
-                            alignment: Alignment.center,
-                            child: FractionallySizedBox(
-                              widthFactor: 0.60,
-                              child: Container(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFCADFF2),
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: Colors.black12),
-                                ),
-                                child: TipText("Cool (Stage 1) Runtime: ${(_totalCool1Hours! * 3600).toInt()} seconds (${_totalCool1Hours!.toStringAsFixed(2)} hours)", textAlign: TextAlign.center),),
-                            ),
-                          ),
-                        if (_totalCool2Hours != null)
-                          Align(
-                            alignment: Alignment.center,
-                            child: FractionallySizedBox(
-                              widthFactor: 0.60,
-                              child: Container(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFCADFF2),
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: Colors.black12),
-                                ),
-                                child: TipText("Cool (Stage 2) Runtime: ${(_totalCool2Hours! * 3600).toInt()} seconds (${_totalCool2Hours!.toStringAsFixed(2)} hours)", textAlign: TextAlign.center),),
-                            ),
-                          ),
-
-                        // HEATING STAGES
-                        if (_totalHeat1Hours != null)
-                          Align(
-                            alignment: Alignment.center,
-                            child: FractionallySizedBox(
-                              widthFactor: 0.60,
-                              child: Container(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFFFE5E8),
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: Colors.black12),
-                                ),
-                                child: TipText("Heat (Stage 1) Runtime: ${(_totalHeat1Hours! * 3600).toInt()} seconds (${_totalHeat1Hours!.toStringAsFixed(2)} hours)", textAlign: TextAlign.center),),
-                            ),
-                          ),
-                        if (_totalHeat2Hours != null)
-                          Align(
-                            alignment: Alignment.center,
-                            child: FractionallySizedBox(
-                              widthFactor: 0.60,
-                              child: Container(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFFFE5E8),
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: Colors.black12),
-                                ),
-                                child: TipText("Heat (Stage 2) Runtime: ${(_totalHeat2Hours! * 3600).toInt()} seconds (${_totalHeat2Hours!.toStringAsFixed(2)} hours)", textAlign: TextAlign.center),),
-                            ),
-                          ),
-
-                        // AUX HEATING STAGES
-                        if (_totalAux1Hours != null)
-                          Align(
-                            alignment: Alignment.center,
-                            child: FractionallySizedBox(
-                              widthFactor: 0.60,
-                              child: Container(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFFFE5E8),
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: Colors.black12),
-                                ),
-                                child: TipText("Aux Heat (Stage 1) Runtime: ${(_totalAux1Hours! * 3600).toInt()} seconds (${_totalAux1Hours!.toStringAsFixed(2)} hours)", textAlign: TextAlign.center),),
-                            ),
-                          ),
-                        if (_totalAux2Hours != null)
-                          Align(
-                            alignment: Alignment.center,
-                            child: FractionallySizedBox(
-                              widthFactor: 0.60,
-                              child: Container(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFFFE5E8),
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: Colors.black12),
-                                ),
-                                child: TipText("Aux Heat (Stage 2) Runtime: ${(_totalAux2Hours! * 3600).toInt()} seconds (${_totalAux2Hours!.toStringAsFixed(2)} hours)", textAlign: TextAlign.center),),
-                            ),
-                          ),
-
-
-
-
-                        Text("Average Set Temperature:"),
-
-                        if (_avgHeatSetTemp != null)
-                          Align(
-                            alignment: Alignment.center,
-                            child: FractionallySizedBox(
-                              widthFactor: 0.60,
-                              child: Container(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFFFE5E8), // Light Red
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: Colors.black12),
-                                ),
-                                child: TipText(
-                                  "Average Heat Set Temp: ${_avgHeatSetTemp!.toStringAsFixed(1)}°",
-                                  textAlign: TextAlign.center,
-                                ),
-                              ),
-                            ),
-                          ),
-
-                        if (_avgCoolSetTemp != null)
-                          Align(
-                            alignment: Alignment.center,
-                            child: FractionallySizedBox(
-                              widthFactor: 0.60,
-                              child: Container(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFCADFF2), // Light Blue
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: Colors.black12),
-                                ),
-                                child: TipText(
-                                  "Average Cool Set Temp: ${_avgCoolSetTemp!.toStringAsFixed(1)}°",
-                                  textAlign: TextAlign.center,
-                                ),
-                              ),
-                            ),
-                          ),
-
-
-                        Text("Reboots:"),
-
-                        if (_rebootCount != null)
-                          Align(
-                            alignment: Alignment.center,
-                            child: FractionallySizedBox(
-                              widthFactor: 0.60,
-                              child: Container(
-                                margin: const EdgeInsets.only(bottom: 16),
-                                padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFFFE5E8),
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: Colors.black12),
-                                ),
-                                child: TipText(
-                                  "Total Reboots: $_rebootCount",
-                                  textAlign: TextAlign.center,
-                                ),
-                              ),
-                            ),
-                          ),
-
-
-
-                        if (_rebootsOnHeat != null && _rebootCount! > 0)
-                    Align(
-                      alignment: Alignment.center,
-                      child: FractionallySizedBox(
-                        widthFactor: 0.60,
-                        child: Container(
-                          margin: const EdgeInsets.only(bottom: 4),
-                          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFFE5E8), // Light Red
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: Colors.black12),
-                          ),
-                          child: TipText("Rebooting on heating calls: $_rebootsOnHeat", textAlign: TextAlign.center),
                         ),
                       ),
                     ),
-
-                  if (_rebootsOnNone != null && _rebootCount! > 0)
-                    Align(
-                      alignment: Alignment.center,
-                      child: FractionallySizedBox(
-                        widthFactor: 0.60,
-                        child: Container(
-                          margin: const EdgeInsets.only(bottom: 4),
-                          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF3F4F6), // Neutral Grey
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: Colors.black12),
-                          ),
-                          child: TipText("Rebooting on no equipment running: $_rebootsOnNone", textAlign: TextAlign.center),
-                        ),
+                    const SizedBox(height: 24),
+                    if (_serialNumber != null)
+                      ExpandableSectionCard(
+                        maxWidth: 700,
+                        title: 'Thermostat Report Summary',
+                        titleBackgroundColor: Colors.grey.shade300,
+                        titleColor: Colors.black,
+                        initiallyExpanded: true,
+                        children: [
+                          _summaryBox('Thermostat Serial Number: $_serialNumber'),
+                          _summaryBox('Thermostat Name: $_thermostatName'),
+                          if (_startDate != null) _summaryBox('Start Date: $_startDate'),
+                          if (_endDate != null) _summaryBox('End Date: $_endDate'),
+                        ],
                       ),
-                    ),
-
-                  if (_rebootsOnCool != null && _rebootCount! > 0)
-                    Align(
-                      alignment: Alignment.center,
-                      child: FractionallySizedBox(
-                        widthFactor: 0.60,
-                        child: Container(
-                          margin: const EdgeInsets.only(bottom: 16),
-                          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFCADFF2), // Light Blue
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: Colors.black12),
-                          ),
-                          child: TipText("Rebooting on cooling calls: $_rebootsOnCool", textAlign: TextAlign.center),
-                        ),
+                    if (_serialNumber != null)
+                      ExpandableSectionCard(
+                        maxWidth: 700,
+                        title: 'Overall Stats',
+                        titleBackgroundColor: Colors.blueGrey.shade100,
+                        titleColor: Colors.black,
+                        initiallyExpanded: true,
+                        children: [
+                          if (_totalFanHours != null)
+                            _summaryBox(
+                              'Total Fan Runtime: ${(_totalFanHours! * 3600).toInt()} seconds (${_totalFanHours!.toStringAsFixed(2)} hours)',
+                              color: const Color(0xFFC6E0B4),
+                            ),
+                          if (_totalCool1Hours != null)
+                            _summaryBox(
+                              'Cool (Stage 1): ${(_totalCool1Hours! * 3600).toInt()} seconds (${_totalCool1Hours!.toStringAsFixed(2)} hours)',
+                              color: const Color(0xFFCADFF2),
+                            ),
+                          if (_totalCool2Hours != null)
+                            _summaryBox(
+                              'Cool (Stage 2): ${(_totalCool2Hours! * 3600).toInt()} seconds (${_totalCool2Hours!.toStringAsFixed(2)} hours)',
+                              color: const Color(0xFFCADFF2),
+                            ),
+                          if (_totalHeat1Hours != null)
+                            _summaryBox(
+                              'Heat (Stage 1): ${(_totalHeat1Hours! * 3600).toInt()} seconds (${_totalHeat1Hours!.toStringAsFixed(2)} hours)',
+                              color: const Color(0xFFFFE5E8),
+                            ),
+                          if (_totalHeat2Hours != null)
+                            _summaryBox(
+                              'Heat (Stage 2): ${(_totalHeat2Hours! * 3600).toInt()} seconds (${_totalHeat2Hours!.toStringAsFixed(2)} hours)',
+                              color: const Color(0xFFFFE5E8),
+                            ),
+                          if (_totalAux1Hours != null)
+                            _summaryBox(
+                              'Aux (Heat 1): ${(_totalAux1Hours! * 3600).toInt()} seconds (${_totalAux1Hours!.toStringAsFixed(2)} hours)',
+                              color: const Color(0xFFFFE5E8),
+                            ),
+                          if (_totalAux2Hours != null)
+                            _summaryBox(
+                              'Aux (Heat 2): ${(_totalAux2Hours! * 3600).toInt()} seconds (${_totalAux2Hours!.toStringAsFixed(2)} hours)',
+                              color: const Color(0xFFFFE5E8),
+                            ),
+                          if (_rebootCount != null)
+                            _summaryBox(
+                              'Total Reboots: $_rebootCount',
+                              color: const Color(0xFFFFE5E8),
+                            ),
+                        ],
                       ),
-                    ),
-
-                      ],
-                    ),
-
-
-                  if (_serialNumber != null)
-                  ExpandableSectionCard(
-                    maxWidth: 700,
-                    title: " Reboot Indicators Table (${_rebootCount ?? 0})",
-                    titleColor: Colors.black,
-                    titleBackgroundColor: const Color(0xFFEF5350),
-                    initiallyExpanded: false, // Set to false if you want it closed by default
-                    children: [
-                      // You can build your table here using DataTable or a ListView
-                      // For example, mapping through your _rebootDetails list:
-                      if (_rebootDetails.isNotEmpty)
-                        Column(
-                          children: [
-
-                           Align(
-                             alignment: Alignment.center,
-                             child: Table(
+                    if (_serialNumber != null)
+                      ExpandableSectionCard(
+                        maxWidth: 700,
+                        title: 'Reboot Indicators Table (${_rebootCount ?? 0})',
+                        titleColor: Colors.black,
+                        titleBackgroundColor: const Color(0xFFEF5350),
+                        initiallyExpanded: false,
+                        children: [
+                          if (_rebootDetails.isNotEmpty)
+                            Align(
+                              alignment: Alignment.center,
+                              child: Table(
                                 border: TableBorder.all(
                                   color: Colors.grey.shade300,
                                   width: 1,
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 columnWidths: const {
-                                  0: FixedColumnWidth(60),  // Compact width for the counter column
-                                  1: FixedColumnWidth(110),     // Evenly expands to fill the remaining width
-                                  2: FixedColumnWidth(110),     // Evenly expands to fill the remaining width
+                                  0: FixedColumnWidth(60),
+                                  1: FixedColumnWidth(110),
+                                  2: FixedColumnWidth(110),
                                 },
                                 defaultVerticalAlignment: TableCellVerticalAlignment.middle,
                                 children: [
-                                  // 1. Table Header Row
                                   TableRow(
-                                    decoration: BoxDecoration(
-                                      color: Colors.grey.shade100,
-                                    ),
+                                    decoration: BoxDecoration(color: Colors.grey.shade100),
                                     children: [
-                                      Padding(
-                                        padding: const EdgeInsets.all(10.0),
-                                        child: Text(
-                                          '#',
-                                          textAlign: TextAlign.center,
-                                          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey.shade700),
-                                        ),
-                                      ),
-                                      Padding(
-                                        padding: const EdgeInsets.all(10.0),
-                                        child: Text(
-                                          'Start Date',
-                                          textAlign: TextAlign.center,
-                                          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey.shade700),
-                                        ),
-                                      ),
-                                      Padding(
-                                        padding: const EdgeInsets.all(10.0),
-                                        child: Text(
-                                          'Start Time',
-                                          textAlign: TextAlign.center,
-                                          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey.shade700),
-                                        ),
-                                      ),
+                                      _tableHeader('#'),
+                                      _tableHeader('Start Date'),
+                                      _tableHeader('Start Time'),
                                     ],
                                   ),
-
-                                  // Dynamic Table Data Rows
                                   ..._rebootDetails.asMap().entries.map((entry) {
                                     final int index = entry.key;
-                                    final dynamic detail = entry.value;
-
-                                    final String rebootCounter = '${index + 1}';
-                                    String rebootStartDate = '';
-                                    String rebootStartTime = '';
-                                    String rebootType = 'None';
-
-                                    // Safely extract from our new Map structure
-                                    if (detail is Map) {
-                                      rebootStartDate = detail['date']?.toString() ?? '';
-                                      rebootStartTime = detail['time']?.toString() ?? '';
-                                      rebootType = detail['type']?.toString() ?? 'None';
-                                    }
-
-                                    // Determine the row color based on the equipment state
-                                    Color rowColor = Colors.white;
-                                    if (rebootType == "Heat") rowColor = const Color(0xFFFFE5E8); // Light Red
-                                    if (rebootType == "Cool") rowColor = const Color(0xFFCADFF2); // Light Blue
-                                    if (rebootType == "None") rowColor = const Color(0xFFF9FAFB); // Neutral Grey
-
+                                    final String detail = entry.value;
+                                    final List<String> parts = detail.split(' ');
+                                    final String rebootStartDate = parts.isNotEmpty ? parts[0] : detail;
+                                    final String rebootStartTime = parts.length > 1 ? parts[1] : '';
                                     return TableRow(
-                                      decoration: BoxDecoration(color: rowColor),
                                       children: [
-                                        Padding(
-                                          padding: const EdgeInsets.all(10.0),
-                                          child: Text(rebootCounter, textAlign: TextAlign.center),
-                                        ),
-                                        Padding(
-                                          padding: const EdgeInsets.all(10.0),
-                                          child: Text(rebootStartDate, textAlign: TextAlign.center),
-                                        ),
-                                        Padding(
-                                          padding: const EdgeInsets.all(10.0),
-                                          child: Text(rebootStartTime, textAlign: TextAlign.center),
-                                        ),
+                                        _tableCell('${index + 1}'),
+                                        _tableCell(rebootStartDate),
+                                        _tableCell(rebootStartTime),
                                       ],
                                     );
-                                  }).toList(),
+                                  }),
                                 ],
                               ),
-                           )
-                          ],
-                        )
-                      else
-                        const Text("No Issues Here."),
-                    ],
-                  ),
-
-
-                  // const SizedBox(height: 32),
-                  // Text(
-                  //   "Developed by Jonathan Lam",
-                  //   style: TextStyle(
-                  //     color: Colors.blueGrey.shade400,
-                  //     fontSize: 9,
-                  //     fontWeight: FontWeight.w500,
-                  //   ),
-                  // ),
-                  const SizedBox(height: 200),
-                ],
+                            )
+                          else
+                            const Text('No Issues Here.'),
+                        ],
+                      ),
+                    const SizedBox(height: 200),
+                  ],
+                ),
               ),
             ),
           ),
-
-
-
-
-
-
-        ),
-
-  floatingActionButton: _isChatOpen
-          ? SupportChatWidget(
-        onClose: () => setState(() => _isChatOpen = false),
-      )
-          : FloatingActionButton.extended(
-        onPressed: () => setState(() => _isChatOpen = true),
-        label: const Text('Ask ecobee AI'),
-        icon: const Icon(Icons.smart_toy),
-        backgroundColor: Colors.green,
+          Positioned(
+            right: 24,
+            bottom: 24,
+            child: _isChatOpen
+                ? SupportChatWidget(onClose: () => setState(() => _isChatOpen = false))
+                : FloatingActionButton.extended(
+                    onPressed: () => setState(() => _isChatOpen = true),
+                    label: const Text('Ask ecobee AI'),
+                    icon: const Icon(Icons.smart_toy),
+                    backgroundColor: Colors.green,
+                  ),
+          ),
+        ],
       ),
+    );
+  }
 
-      // Optional: This ensures it explicitly locks to the bottom right,
-      // though endFloat is usually the default behavior.
+  Widget _summaryBox(String text, {Color color = const Color(0xFFFFFF00)}) {
+    return Align(
+      alignment: Alignment.center,
+      child: FractionallySizedBox(
+        widthFactor: 0.60,
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: Colors.black12),
+          ),
+          child: TipText(text, textAlign: TextAlign.center),
+        ),
+      ),
+    );
+  }
 
+  Widget _tableHeader(String text) {
+    return Padding(
+      padding: const EdgeInsets.all(10.0),
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey.shade700),
+      ),
+    );
+  }
 
+  Widget _tableCell(String text) {
+    return Padding(
+      padding: const EdgeInsets.all(10.0),
+      child: Text(text, textAlign: TextAlign.center),
     );
   }
 }
-
-
-
-Widget _summaryBox(String text, {Color color = const Color(0xFFFFFF00)}) {
-  return Align(
-    alignment: Alignment.center,
-    child: FractionallySizedBox(
-      widthFactor: 0.60,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: Colors.black12),
-        ),
-        child: TipText(text, textAlign: TextAlign.center),
-      ),
-    ),
-  );
-}
-
-Widget _tableHeader(String text) {
-  return Padding(
-    padding: const EdgeInsets.all(10.0),
-    child: Text(
-      text,
-      textAlign: TextAlign.center,
-      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey.shade700),
-    ),
-  );
-}
-
-Widget _tableCell(String text) {
-  return Padding(
-    padding: const EdgeInsets.all(10.0),
-    child: Text(text, textAlign: TextAlign.center),
-  );
-}
-
 
 class SupportChatWidget extends StatefulWidget {
   const SupportChatWidget({super.key, required this.onClose});
@@ -1450,8 +754,7 @@ class _SupportChatWidgetState extends State<SupportChatWidget> {
 
   Future<void> _sendMessage() async {
     final query = _messageController.text.trim();
-    //final apiKey = _apiKeyController.text.trim();
-    const apiKey = 'AIzaSyB2IocM-W8eqwsEGJcrHG-ZDCs6j_EAOGs';
+    final apiKey = _apiKeyController.text.trim();
     if (query.isEmpty || _isLoading) return;
 
     if (apiKey.isEmpty) {
@@ -1746,10 +1049,10 @@ class _SupportChatWidgetState extends State<SupportChatWidget> {
                           ),
                           child: _isLoading
                               ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                          )
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                )
                               : const Icon(Icons.send_rounded),
                         ),
                       ],
@@ -1768,8 +1071,11 @@ class _SupportChatWidgetState extends State<SupportChatWidget> {
 class KnowledgeBaseService {
   Future<List<KnowledgeItem>> loadKnowledgeBase() async {
     final rawJson = await rootBundle.loadString('assets/data/knowledge_base.json');
-    final decoded = jsonDecode(rawJson) as List<dynamic>;
-    return decoded
+
+    final decoded = jsonDecode(rawJson) as Map<String, dynamic>;
+    final chunkList = decoded['chunks'] as List<dynamic>? ?? [];
+
+    return chunkList
         .map((item) => KnowledgeItem.fromMap(item as Map<String, dynamic>))
         .toList();
   }
@@ -1777,10 +1083,10 @@ class KnowledgeBaseService {
 
 class LocalSearchService {
   List<SearchResult> retrieveTopMatches(
-      List<KnowledgeItem> items,
-      String query, {
-        int limit = 5,
-      }) {
+    List<KnowledgeItem> items,
+    String query, {
+    int limit = 5,
+  }) {
     final results = items
         .map((item) => SearchResult(item: item, score: _scoreItem(item, query)))
         .where((result) => result.score > 0)
@@ -1934,12 +1240,14 @@ class KnowledgeItem {
 
   factory KnowledgeItem.fromMap(Map<String, dynamic> map) {
     return KnowledgeItem(
-      id: map['id']?.toString() ?? '',
-      title: map['title']?.toString() ?? '',
-      category: map['category']?.toString() ?? '',
-      tags: (map['tags'] as List<dynamic>? ?? []).map((tag) => tag.toString()).toList(),
-      content: map['content']?.toString() ?? '',
-      source: map['source']?.toString() ?? '',
+      id: (map['chunk_id'] ?? map['id'] ?? '').toString(),
+      title: (map['title'] ?? '').toString(),
+      category: (map['category'] ?? '').toString(),
+      tags: ((map['tags'] as List<dynamic>?) ?? [])
+          .map((tag) => tag.toString())
+          .toList(),
+      content: (map['content'] ?? '').toString(),
+      source: (map['url'] ?? map['source'] ?? '').toString(),
     );
   }
 }
