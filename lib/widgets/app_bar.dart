@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-
 import '../screens/how_to_use.dart';
 import '../screens/privacy_policy.dart';
 
@@ -70,7 +69,7 @@ class ConsistentAppBar extends StatelessWidget implements PreferredSizeWidget {
         "",
         style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
       ),
-      backgroundColor: Colors.blue,
+      backgroundColor: const Color(0xFF172538),
       foregroundColor: Colors.white,
       elevation: 4,
       automaticallyImplyLeading: false,

@@ -1,20 +1,20 @@
-# Use the official Dart image
-FROM dart:stable AS build
+# Use official Node.js image
+FROM node:22-slim
 
-# Resolve app dependencies
+# Set working directory
 WORKDIR /app
-COPY pubspec.* ./
-RUN dart pub get
 
-# Copy app source code and compile it
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm install
+
+# Copy source code
 COPY . .
-# Ensure bin/server.dart matches the actual name of your server file
-RUN dart compile exe bin/server.dart -o bin/server
 
-# Build a minimal runtime image
-FROM scratch
-COPY --from=build /runtime/ /
-COPY --from=build /app/bin/server /app/bin/
+# Build the project
+RUN npm run build
 
-# Start the server
-CMD ["/app/bin/server"]
+# Start the application
+CMD ["node", "dist/index.js"]

@@ -39,6 +39,18 @@ app.*.symbols
 # Obfuscation related
 app.*.map.json
 
+
+# =======================================================================
+# BACKEND SECRETS & ENVIRONMENT VARIABLES (Fixed & Added)
+# =======================================================================
+# Ignore local environment keys
+.env
+chatbot-backend/.env
+
+# Ignore Firebase Admin SDK keys (Fixed typo from charbot -> chatbot)
+chatbot-backend/service-account.json
+chatbot-backend/*-adminsdk-*.json
+
 # Android Studio will place build artifacts here
 /android/app/debug
 /android/app/profile

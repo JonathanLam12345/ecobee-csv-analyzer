@@ -13,5 +13,8 @@
         "destination": "/index.html"
       }
     ]
+  },
+  "extensions": {
+    "firestore-vector-search": "googlecloud/firestore-vector-search@0.1.3"
   }
 }

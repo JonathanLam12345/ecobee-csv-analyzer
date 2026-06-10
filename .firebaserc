@@ -1,5 +1,13 @@
 {
   "projects": {
     "default": "ecobee-csv-analyzer"
+  },
+  "targets": {},
+  "etags": {
+    "ecobee-csv-analyzer": {
+      "extensionInstances": {
+        "firestore-vector-search": "a16fcadf85f0379c2da6fefbebef9136b65685136773191e99b1b314f5ef7c59"
+      }
+    }
   }
 }

@@ -38,51 +38,45 @@ class HowToUsePage extends StatelessWidget {
                   ],
                 ),
               ),
-
-
-
-              const SizedBox(height: 5),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 900),
-                child: SectionCard(
-                  title: "Support this Project",
-                  children: [
-                    const Text(
-                      "If you find this tool helpful for your diagnostics, please consider supporting its development. Maintaining this site takes time and comes with ongoing costs. Your support is greatly appreciated.",
-                      style: TextStyle(fontSize: 14, color: Colors.black87),
-                    ),
-                    const SizedBox(height: 16),
-                    Center(
-                      child: ElevatedButton.icon(
-                        onPressed: () async {
-                          final url = Uri.parse("https://www.buymeacoffee.com/jonathanlam12345");
-                          if (await canLaunchUrl(url)) {
-                            await launchUrl(url);
-                          }
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFFFDD00), // BMC Yellow
-                          foregroundColor: Colors.black,
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          elevation: 2,
-                        ),
-                        icon: const Icon(Icons.coffee, size: 20),
-                        label: const Text(
-                          "Buy me a coffee",
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              // const SizedBox(height: 5),
+              // ConstrainedBox(
+              //   constraints: const BoxConstraints(maxWidth: 900),
+              //   child: SectionCard(
+              //     title: "Support this Project",
+              //     children: [
+              //       const Text(
+              //         "If you find this tool helpful for your diagnostics, please consider supporting its development. Maintaining this site takes time and comes with ongoing costs. Your support is greatly appreciated.",
+              //         style: TextStyle(fontSize: 14, color: Colors.black87),
+              //       ),
+              //       const SizedBox(height: 16),
+              //       Center(
+              //         child: ElevatedButton.icon(
+              //           onPressed: () async {
+              //             final url = Uri.parse("https://www.buymeacoffee.com/jonathanlam12345");
+              //             if (await canLaunchUrl(url)) {
+              //               await launchUrl(url);
+              //             }
+              //           },
+              //           style: ElevatedButton.styleFrom(
+              //             backgroundColor: const Color(0xFFFFDD00), // BMC Yellow
+              //             foregroundColor: Colors.black,
+              //             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+              //             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              //             elevation: 2,
+              //           ),
+              //           icon: const Icon(Icons.coffee, size: 20),
+              //           label: const Text(
+              //             "Buy me a coffee",
+              //             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+              //           ),
+              //         ),
+              //       ),
+              //     ],
+              //   ),
+              // ),
               //
             ],
           ),
-
-
-
         ),
       ),
     );
