@@ -1451,7 +1451,7 @@ class _SupportChatWidgetState extends State<SupportChatWidget> {
   Future<void> _sendMessage() async {
     final query = _messageController.text.trim();
     //final apiKey = _apiKeyController.text.trim();
-    const apiKey = 'AIzaSyB2IocM-W8eqwsEGJcrHG-ZDCs6j_EAOGs';
+//    const apiKey = 'AIzaSyB2IocM-W8eqwsEGJcrHG-ZDCs6j_EAOGs';
     if (query.isEmpty || _isLoading) return;
 
     if (apiKey.isEmpty) {
