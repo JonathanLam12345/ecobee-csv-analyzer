@@ -755,7 +755,7 @@ class _SupportChatWidgetState extends State<SupportChatWidget> {
   Future<void> _sendMessage() async {
     final query = _messageController.text.trim();
     if (query.isEmpty || _isLoading) return;
-    const apiKey = '';
+    const apiKey = 'AQ.Ab8RN6IrTIwxZQArCSQ_1Js8i0UmPzentC7HGl-r3UwUHCVZnA';
     /* final apiKey = _apiKeyController.text.trim();
 
     if (apiKey.isEmpty) {
@@ -1173,6 +1173,7 @@ Additional rules:
 - Ask a clarifying question if needed.
 - Keep answers direct, natural, and helpful.
 - For greetings, do not sound formal or scripted.
+- If the user is asking for anyhting unrelated to thermostats or ecobee products, politely let them know you are specialized in those topics and may not be able to help with unrelated questions.
 
 Database context:
 ${context.isEmpty ? 'No matching database records were found.' : context}
