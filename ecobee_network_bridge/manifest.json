@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Ecobee Network Bridge (Local Test)",
+  "version": "1.0.0",
+  "description": "Local test version of the network bridge.",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "externally_connectable": {
+    "matches": [
+      "https://ecobee-csv-analyzer.web.app/*",
+      "http://localhost/*",
+      "https://ecobee-csv-analyzer.firebaseapp.com/"
+    ]
+  }
+}

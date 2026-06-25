@@ -1,5 +1,5 @@
 import express from "express";
-
+import cors from 'cors';
 import { z } from "zod";
 
 import { initializeApp, getApps } from "firebase-admin/app";
@@ -17,7 +17,7 @@ if (getApps().length === 0) {
 const db = getFirestore();
 
 const app = express();
-
+app.use(cors());
 app.use(express.json());
 
 async function getChatHistory(limit: number = 3): Promise<string> {
@@ -171,4 +171,20 @@ const port = parseInt(process.env.PORT || "8080");
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`Server listening on port ${port} and binding to 0.0.0.0`);
+});
+
+
+app.post("/api/get-temp-dynamic", async (req, res) => {
+  const { ip } = req.body; // The IP address specific to the user's thermostat
+
+  if (!ip) return res.status(400).json({ error: "IP required" });
+
+  try {
+    // The server fetches the data dynamically
+    const response = await fetch(`http://${ip}:8005/temp`);
+    const temp = await response.text();
+    res.json({ temperature: temp });
+  } catch (e) {
+    res.status(500).json({ error: "Could not reach that thermostat" });
+  }
 });

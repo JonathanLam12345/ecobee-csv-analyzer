@@ -59,9 +59,9 @@ class TipText extends StatelessWidget {
       spans.add(TextSpan(text: text, style: normalStyle));
     }
 
-    final content = RichText(
+    final content = SelectableText.rich(
+      TextSpan(children: spans),
       textAlign: textAlign,
-      text: TextSpan(children: spans),
     );
 
     final child = textAlign == TextAlign.center

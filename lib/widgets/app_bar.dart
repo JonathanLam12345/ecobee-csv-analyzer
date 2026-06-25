@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import '../screens/how_to_use.dart';
 import '../screens/privacy_policy.dart';
-
+import '../screens/update_log_page.dart';
+import '../screens/thermostat_controller.dart';
 class ConsistentAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String currentPage;
 
@@ -79,11 +80,33 @@ class ConsistentAppBar extends StatelessWidget implements PreferredSizeWidget {
             Navigator.of(context).popUntil((route) => route.isFirst);
           }
         }),
+
+        _navButton(context, "Controller", "controller", () {
+          Navigator.push(
+            context,
+            PageRouteBuilder(
+              pageBuilder: (context, anim1, anim2) => const ThermostatControllerPage(),
+              transitionDuration: Duration.zero,
+              reverseTransitionDuration: Duration.zero,
+            ),
+          );
+        }),
+
         _navButton(context, "About", "Info", () {
           Navigator.push(
             context,
             PageRouteBuilder(
               pageBuilder: (context, anim1, anim2) => const HowToUsePage(),
+              transitionDuration: Duration.zero,
+              reverseTransitionDuration: Duration.zero,
+            ),
+          );
+        }),
+        _navButton(context, "Update Log", "log", () {
+          Navigator.push(
+            context,
+            PageRouteBuilder(
+              pageBuilder: (context, anim1, anim2) => const UpdateLogPage(),
               transitionDuration: Duration.zero,
               reverseTransitionDuration: Duration.zero,
             ),
