@@ -39,4 +39,48 @@ chrome.runtime.onMessageExternal.addListener((request, sender, sendResponse) => 
 
       return true; // Keeps the message channel open for the async fetch
     }
+
+// --- NEW LED LOGIC ---
+  if (request.action === "setLedRed") {
+    const targetUrl = `http://${request.ip}:8005/led/animation/ALL_RED`;
+
+    fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+    .then(response => {
+      if (response.ok) {
+        sendResponse({ success: true });
+      } else {
+        sendResponse({ success: false, error: `HTTP Error: ${response.status}` });
+      }
+    })
+    .catch(error => sendResponse({ success: false, error: error.message }));
+
+    return true; // Keep message channel open for async response
+  }
+
+  if (request.action === "setLedOff") {
+    const targetUrl = `http://${request.ip}:8005/led/animation/NONE`;
+
+    fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+    .then(response => {
+      if (response.ok) {
+        sendResponse({ success: true });
+      } else {
+        sendResponse({ success: false, error: `HTTP Error: ${response.status}` });
+      }
+    })
+    .catch(error => sendResponse({ success: false, error: error.message }));
+    return true; // Keep message channel open for async response
+  }
+
+
 });

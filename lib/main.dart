@@ -705,6 +705,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       appBar: ConsistentAppBar(currentPage: "Home"),
       backgroundColor: const Color(0xFFF8F9FB),
       body: Stack(
+        fit: StackFit.expand,
         children: [
           SingleChildScrollView(
             padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
@@ -731,7 +732,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
 
                             Align(
                               alignment: Alignment.centerRight, // This forces the widget to the right side
-                              child: SelectableText(
+                              child: Text(
                                 displayVersionText,
                                 style: TextStyle(
                                   color: versionColor,
@@ -935,13 +936,130 @@ SizedBox(height: 30,),
                             // ==========================================
                             if (_serialNumber != null)
                               ExpandableSectionCard(
-                                maxWidth: 350,
+                                maxWidth: 380,
                                 title: "Overall Stats",
                                 titleBackgroundColor: Colors.blueGrey.shade100,
                                 // Giving this its own header color
                                 titleColor: Colors.black,
                                 initiallyExpanded: true,
                                 children: [
+
+
+                                  Center(
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 5.0),
+                                      child: Text(
+                                        "Reboots",
+                                        style: TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w600, // Medium-bold weight looks cleaner than standard bold
+                                          color: Colors.blueGrey.shade800,
+                                          letterSpacing: 0.5, // Adds a slight modern touch
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+
+                                  if (_rebootCount != null)
+                                    Align(
+                                      alignment: Alignment.topLeft,
+                                      child: Container(
+                                        margin:
+                                        const EdgeInsets.only(bottom: 16),
+                                        padding: const EdgeInsets.symmetric(
+                                            vertical: 4, horizontal: 8),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFEF5350),
+                                          borderRadius:
+                                          BorderRadius.circular(6),
+                                          border: Border.all(
+                                              color: Colors.black12),
+                                        ),
+                                        child: TipText(
+                                          "Total Reboots: $_rebootCount",
+                                          textAlign: TextAlign.left,
+                                        ),
+                                      ),
+                                    ),
+
+                                  if (_rebootsOnHeat != null &&
+                                      _rebootCount! > 0)
+                                    Align(
+                                      alignment: Alignment.topLeft,
+                                      child: Container(
+                                        margin:
+                                        const EdgeInsets.only(bottom: 4),
+                                        padding: const EdgeInsets.symmetric(
+                                            vertical: 4, horizontal: 8),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFFFE5E8),
+                                          // Light Red
+                                          borderRadius:
+                                          BorderRadius.circular(6),
+                                          border: Border.all(
+                                              color: Colors.black12),
+                                        ),
+                                        child: TipText(
+                                            "Rebooting on heating calls: $_rebootsOnHeat",
+                                            textAlign: TextAlign.left),
+                                      ),
+                                    ),
+
+                                  if (_rebootsOnNone != null &&
+                                      _rebootCount! > 0)
+                                    Align(
+                                      alignment: Alignment.topLeft,
+                                      child: Container(
+                                        margin:
+                                        const EdgeInsets.only(bottom: 4),
+                                        padding: const EdgeInsets.symmetric(
+                                            vertical: 4, horizontal: 8),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFF3F4F6),
+                                          // Neutral Grey
+                                          borderRadius:
+                                          BorderRadius.circular(6),
+                                          border: Border.all(
+                                              color: Colors.black12),
+                                        ),
+                                        child: TipText(
+                                            "Rebooting on no equipment running: $_rebootsOnNone",
+                                            textAlign: TextAlign.left),
+                                      ),
+                                    ),
+
+                                  if (_rebootsOnCool != null &&
+                                      _rebootCount! > 0)
+                                    Align(
+                                      alignment: Alignment.topLeft,
+                                      child: Container(
+                                        margin:
+                                        const EdgeInsets.only(bottom: 16),
+                                        padding: const EdgeInsets.symmetric(
+                                            vertical: 4, horizontal: 8),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFCADFF2),
+                                          // Light Blue
+                                          borderRadius:
+                                          BorderRadius.circular(6),
+                                          border: Border.all(
+                                              color: Colors.black12),
+                                        ),
+                                        child: TipText(
+                                            "Rebooting on cooling calls: $_rebootsOnCool",
+                                            textAlign: TextAlign.left),
+                                      ),
+                                    ),
+
+                                  Divider(
+                                    height: 3,
+                                    // Vertical layout space allocating 16px above and 16px below line
+                                    thickness: 1,
+                                    // Definite thin border profile
+                                    color: Colors
+                                        .black12, // Standard subtle layout line matching app themes
+                                  ),
+
                                   Center(
                                     child: Padding(
                                       padding: const EdgeInsets.symmetric(vertical: 12.0),
@@ -1105,7 +1223,7 @@ SizedBox(height: 30,),
                                     ),
 
                                   Divider(
-                                    height: 32,
+                                    height: 3,
                                     // Vertical layout space allocating 16px above and 16px below line
                                     thickness: 1,
                                     // Definite thin border profile
@@ -1173,120 +1291,8 @@ SizedBox(height: 30,),
                                       ),
                                     ),
 
-                                  Divider(
-                                    height: 32,
-                                    // Vertical layout space allocating 16px above and 16px below line
-                                    thickness: 1,
-                                    // Definite thin border profile
-                                    color: Colors
-                                        .black12, // Standard subtle layout line matching app themes
-                                  ),
 
-                                  Center(
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(vertical: 12.0),
-                                      child: Text(
-                                        "Reboots",
-                                        style: TextStyle(
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.w600, // Medium-bold weight looks cleaner than standard bold
-                                          color: Colors.blueGrey.shade800,
-                                          letterSpacing: 0.5, // Adds a slight modern touch
-                                        ),
-                                      ),
-                                    ),
-                                  ),
 
-                                  if (_rebootCount != null)
-                                    Align(
-                                      alignment: Alignment.topLeft,
-                                      child: Container(
-                                        margin:
-                                            const EdgeInsets.only(bottom: 16),
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 4, horizontal: 8),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFFFE5E8),
-                                          borderRadius:
-                                              BorderRadius.circular(6),
-                                          border: Border.all(
-                                              color: Colors.black12),
-                                        ),
-                                        child: TipText(
-                                          "Total Reboots: $_rebootCount",
-                                          textAlign: TextAlign.left,
-                                        ),
-                                      ),
-                                    ),
-
-                                  if (_rebootsOnHeat != null &&
-                                      _rebootCount! > 0)
-                                    Align(
-                                      alignment: Alignment.topLeft,
-                                      child: Container(
-                                        margin:
-                                            const EdgeInsets.only(bottom: 4),
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 4, horizontal: 8),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFFFE5E8),
-                                          // Light Red
-                                          borderRadius:
-                                              BorderRadius.circular(6),
-                                          border: Border.all(
-                                              color: Colors.black12),
-                                        ),
-                                        child: TipText(
-                                            "Rebooting on heating calls: $_rebootsOnHeat",
-                                            textAlign: TextAlign.left),
-                                      ),
-                                    ),
-
-                                  if (_rebootsOnNone != null &&
-                                      _rebootCount! > 0)
-                                    Align(
-                                      alignment: Alignment.topLeft,
-                                      child: Container(
-                                        margin:
-                                            const EdgeInsets.only(bottom: 4),
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 4, horizontal: 8),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFF3F4F6),
-                                          // Neutral Grey
-                                          borderRadius:
-                                              BorderRadius.circular(6),
-                                          border: Border.all(
-                                              color: Colors.black12),
-                                        ),
-                                        child: TipText(
-                                            "Rebooting on no equipment running: $_rebootsOnNone",
-                                            textAlign: TextAlign.left),
-                                      ),
-                                    ),
-
-                                  if (_rebootsOnCool != null &&
-                                      _rebootCount! > 0)
-                                    Align(
-                                      alignment: Alignment.topLeft,
-                                      child: Container(
-                                        margin:
-                                            const EdgeInsets.only(bottom: 16),
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 4, horizontal: 8),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFCADFF2),
-                                          // Light Blue
-                                          borderRadius:
-                                              BorderRadius.circular(6),
-                                          border: Border.all(
-                                              color: Colors.black12),
-                                        ),
-                                        child: TipText(
-                                            "Rebooting on cooling calls: $_rebootsOnCool",
-                                            textAlign: TextAlign.left),
-                                      ),
-                                    ),
                                 ],
                               ),
 
