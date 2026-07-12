@@ -141,28 +141,28 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       }
     });
   }
-
-  // Logic to show the chatbot as a pop-up
-  void _showChatbotPopup() {
-    showDialog(
-      context: context,
-      barrierColor: Colors.black.withOpacity(0.2),
-      // Dim the background slightly
-      builder: (BuildContext context) {
-        return Dialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          alignment: Alignment.bottomRight, // Position it near the FAB
-          insetPadding: const EdgeInsets.only(right: 20, bottom: 80),
-          child: const SizedBox(
-            width: 400,
-            height: 500,
-            child: ChatbotWidget(),
-          ),
-        );
-      },
-    );
-  }
+  // Commenting this code for github push:
+  // // Logic to show the chatbot as a pop-up
+  // void _showChatbotPopup() {
+  //   showDialog(
+  //     context: context,
+  //     barrierColor: Colors.black.withOpacity(0.2),
+  //     // Dim the background slightly
+  //     builder: (BuildContext context) {
+  //       return Dialog(
+  //         shape:
+  //             RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+  //         alignment: Alignment.bottomRight, // Position it near the FAB
+  //         insetPadding: const EdgeInsets.only(right: 20, bottom: 80),
+  //         child: const SizedBox(
+  //           width: 400,
+  //           height: 500,
+  //           child: ChatbotWidget(),
+  //         ),
+  //       );
+  //     },
+  //   );
+  // }
 
   Future<void> _processFile(Uint8List bytes, String fileName) async {
     setState(() {
