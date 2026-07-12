@@ -1730,19 +1730,20 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
               ),
             ),
           ),
-          Positioned(
-            right: 24,
-            bottom: 24,
-            child: _isChatOpen
-                ? SupportChatWidget(
-                    onClose: () => setState(() => _isChatOpen = false))
-                : FloatingActionButton.extended(
-                    onPressed: () => setState(() => _isChatOpen = true),
-                    label: const Text('Ask ecobee AI'),
-                    icon: const Icon(Icons.smart_toy),
-                    backgroundColor: Colors.green,
-                  ),
-          ),
+          // Commenting this code for github push:
+          // Positioned(
+          //   right: 24,
+          //   bottom: 24,
+          //   child: _isChatOpen
+          //       ? SupportChatWidget(
+          //           onClose: () => setState(() => _isChatOpen = false))
+          //       : FloatingActionButton.extended(
+          //           onPressed: () => setState(() => _isChatOpen = true),
+          //           label: const Text('Ask ecobee AI'),
+          //           icon: const Icon(Icons.smart_toy),
+          //           backgroundColor: Colors.green,
+          //         ),
+          // ),
         ],
       ),
     );
