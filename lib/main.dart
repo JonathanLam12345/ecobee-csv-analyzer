@@ -20,7 +20,6 @@ import 'package:http/http.dart' as http;
 
 // 411955672402--2026-01-01--2026-01-30-reports-data
 
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -81,6 +80,13 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
 
   double? _avgHeatSetTemp;
   double? _avgCoolSetTemp;
+
+  double? _stage1HeatingSpeed;
+  double? _stage2HeatingSpeed;
+  double? _auxHeatingSpeed;
+
+  double? _stage1CoolingSpeed;
+  double? _stage2CoolingSpeed;
 
   String? _serialNumber;
   String? _thermostatName;
@@ -194,6 +200,14 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
 
       _avgHeatSetTemp = null;
       _avgCoolSetTemp = null;
+
+      _stage1HeatingSpeed = null;
+      _stage2HeatingSpeed = null;
+      _auxHeatingSpeed = null;
+
+      _stage1CoolingSpeed = null;
+      _stage2CoolingSpeed = null;
+
       _rebootsOnHeat = null;
       _rebootsOnCool = null;
       _rebootsOnNone = null;
@@ -338,9 +352,14 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
 
         int heatSetTempIdx = -1;
         int coolSetTempIdx = -1;
+        int currentTempIdx = -1; // <-- ADD THIS LINE
 
         for (int j = 0; j < headerRow.length; j++) {
           String headerText = headerRow[j].toString().toLowerCase().trim();
+
+          if (headerText.contains("current temp") ) {
+            currentTempIdx = j;
+          }
           if (headerText.contains("wind speed (km/h)")) {
             columnsToSkip.add(j);
           }
@@ -369,9 +388,24 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
         int countCoolSetTemp = 0;
         List<List<dynamic>> dataRows = csvRows.sublist(6);
 
-        // =========================================================
-        // NOTICE HOW THE LOOP IS NOW INSIDE THIS IF BLOCK
-        // =========================================================
+        // --- NEW SEPARATED TRACKING VARIABLES ---
+        double totalS1Delta = 0.0, totalS1Sec = 0.0;
+        double totalS2Delta = 0.0, totalS2Sec = 0.0;
+        double totalAuxDelta = 0.0, totalAuxSec = 0.0;
+
+        bool inS1 = false, inS2 = false, inAux = false;
+        double s1Start = 0.0, s2Start = 0.0, auxStart = 0.0;
+        double s1End = 0.0, s2End = 0.0, auxEnd = 0.0;
+        double currentS1Sec = 0.0, currentS2Sec = 0.0, currentAuxSec = 0.0;
+
+        // --- NEW COOLING TRACKING VARIABLES ---
+        double totalC1Delta = 0.0, totalC1Sec = 0.0;
+        double totalC2Delta = 0.0, totalC2Sec = 0.0;
+
+        bool inC1 = false, inC2 = false;
+        double c1Start = 0.0, c2Start = 0.0;
+        double c1End = 0.0, c2End = 0.0;
+        double currentC1Sec = 0.0, currentC2Sec = 0.0;
 
         for (int i = 6; i < csvRows.length; i++) {
           // Fan
@@ -381,46 +415,151 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
             if (val != null) totalFanSeconds += val;
           }
 
-          // Cool Stage 1 (Checking for != -1 instead of null)
+
+
+          double rowHeat1 = 0.0, rowHeat2 = 0.0, rowAux1 = 0.0, rowAux2 = 0.0;
+          double rowCool1 = 0.0, rowCool2 = 0.0;
+
           if (cool1Idx != -1 && cool1Idx < csvRows[i].length) {
-            final double? val =
-                double.tryParse(csvRows[i][cool1Idx].toString());
-            if (val != null) totalCool1Seconds += val;
+            rowCool1 =
+                double.tryParse(csvRows[i][cool1Idx].toString()) ?? 0.0;
+            totalCool1Seconds += rowCool1;
           }
 
-          // Cool Stage 2
           if (cool2Idx != -1 && cool2Idx < csvRows[i].length) {
-            final double? val =
-                double.tryParse(csvRows[i][cool2Idx].toString());
-            if (val != null) totalCool2Seconds += val;
+            rowCool2 =
+                double.tryParse(csvRows[i][cool2Idx].toString()) ?? 0.0;
+            totalCool2Seconds += rowCool2;
           }
 
-          // Heat Stage 1
+
           if (heat1Idx != -1 && heat1Idx < csvRows[i].length) {
-            final double? val =
-                double.tryParse(csvRows[i][heat1Idx].toString());
-            if (val != null) totalHeat1Seconds += val;
+            rowHeat1 = double.tryParse(csvRows[i][heat1Idx].toString()) ?? 0.0;
+            totalHeat1Seconds += rowHeat1;
           }
-
-          // Heat Stage 2
           if (heat2Idx != -1 && heat2Idx < csvRows[i].length) {
-            final double? val =
-                double.tryParse(csvRows[i][heat2Idx].toString());
-            if (val != null) totalHeat2Seconds += val;
+            rowHeat2 = double.tryParse(csvRows[i][heat2Idx].toString()) ?? 0.0;
+            totalHeat2Seconds += rowHeat2;
           }
-
-          // Aux Heat 1
           if (aux1Idx != -1 && aux1Idx < csvRows[i].length) {
-            final double? val = double.tryParse(csvRows[i][aux1Idx].toString());
-            if (val != null) totalAux1Seconds += val;
+            rowAux1 = double.tryParse(csvRows[i][aux1Idx].toString()) ?? 0.0;
+            totalAux1Seconds += rowAux1;
           }
-
-          // Aux Heat 2
           if (aux2Idx != -1 && aux2Idx < csvRows[i].length) {
-            final double? val = double.tryParse(csvRows[i][aux2Idx].toString());
-            if (val != null) totalAux2Seconds += val;
+            rowAux2 = double.tryParse(csvRows[i][aux2Idx].toString()) ?? 0.0;
+            totalAux2Seconds += rowAux2;
           }
 
+          // Fetch current temperature
+          double currentTemp = 0.0;
+          bool hasValidTemp = false;
+          if (currentTempIdx != -1 && currentTempIdx < csvRows[i].length) {
+            final double? val =
+                double.tryParse(csvRows[i][currentTempIdx].toString());
+            if (val != null) {
+              currentTemp = val;
+              hasValidTemp = true;
+            }
+          }
+
+          // Verify online status
+          String colC = csvRows[i].length > 2
+              ? csvRows[i][2]?.toString().trim() ?? ""
+              : "";
+          bool isOffline = colC.isEmpty;
+
+          // Determine the active equipment state for this row
+          int currentState =
+              0; // 0 = off, 1 = S1, 2 = S2, 3 = Aux, 4 = Cool1, 5 = Cool2
+          double activeSeconds = 0.0;
+
+          if (rowAux1 > 0 || rowAux2 > 0) {
+            currentState = 3;
+            activeSeconds = rowAux1 > rowAux2 ? rowAux1 : rowAux2;
+          } else if (rowHeat2 > 0) {
+            currentState = 2;
+            activeSeconds = rowHeat2;
+          } else if (rowHeat1 > 0) {
+            currentState = 1;
+            activeSeconds = rowHeat1;
+          } else if (rowCool2 > 0) {
+            currentState = 5; // Cool Stage 2
+            activeSeconds = rowCool2;
+          } else if (rowCool1 > 0) {
+            currentState = 4; // Cool Stage 1
+            activeSeconds = rowCool1;
+          }
+
+
+
+          // Close blocks if the state changed or thermostat went offline
+          if (isOffline || currentState != 1) {
+            if (inS1) {
+              totalS1Delta += (s1End - s1Start);
+              totalS1Sec += currentS1Sec;
+              inS1 = false;
+            }
+          }
+          if (isOffline || currentState != 2) {
+            if (inS2) {
+              totalS2Delta += (s2End - s2Start);
+              totalS2Sec += currentS2Sec;
+              inS2 = false;
+            }
+          }
+          if (isOffline || currentState != 3) {
+            if (inAux) {
+              totalAuxDelta += (auxEnd - auxStart);
+              totalAuxSec += currentAuxSec;
+              inAux = false;
+            }
+          }
+
+          if (isOffline || currentState != 4) {
+            if (inC1) { totalC1Delta += (c1Start - c1End); totalC1Sec += currentC1Sec; inC1 = false; }
+          }
+          if (isOffline || currentState != 5) {
+            if (inC2) { totalC2Delta += (c2Start - c2End); totalC2Sec += currentC2Sec; inC2 = false; }
+          }
+
+          // Open or update the current active block
+          if (!isOffline && hasValidTemp && currentState > 0) {
+            if (currentState == 1) {
+              if (!inS1) {
+                inS1 = true;
+                s1Start = currentTemp;
+                currentS1Sec = 0;
+              }
+              s1End = currentTemp;
+              currentS1Sec += activeSeconds;
+            } else if (currentState == 2) {
+              if (!inS2) {
+                inS2 = true;
+                s2Start = currentTemp;
+                currentS2Sec = 0;
+              }
+              s2End = currentTemp;
+              currentS2Sec += activeSeconds;
+            } else if (currentState == 3) {
+              if (!inAux) {
+                inAux = true;
+                auxStart = currentTemp;
+                currentAuxSec = 0;
+              }
+              auxEnd = currentTemp;
+              currentAuxSec += activeSeconds;
+            }
+
+           else if (currentState == 4) {
+              if (!inC1) { inC1 = true; c1Start = currentTemp; currentC1Sec = 0; }
+              c1End = currentTemp; currentC1Sec += activeSeconds;
+            } else if (currentState == 5) {
+              if (!inC2) { inC2 = true; c2Start = currentTemp; currentC2Sec = 0; }
+              c2End = currentTemp; currentC2Sec += activeSeconds;
+            }
+          }
+
+          /////////////////////////
           if (heatSetTempIdx != -1 && heatSetTempIdx < csvRows[i].length) {
             final double? val =
                 double.tryParse(csvRows[i][heatSetTempIdx].toString());
@@ -439,6 +578,20 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
             }
           }
         }
+        if (inS1) {
+          totalS1Delta += (s1End - s1Start);
+          totalS1Sec += currentS1Sec;
+        }
+        if (inS2) {
+          totalS2Delta += (s2End - s2Start);
+          totalS2Sec += currentS2Sec;
+        }
+        if (inAux) {
+          totalAuxDelta += (auxEnd - auxStart);
+          totalAuxSec += currentAuxSec;
+        }
+        if (inC1) { totalC1Delta += (c1Start - c1End); totalC1Sec += currentC1Sec; }
+        if (inC2) { totalC2Delta += (c2Start - c2End); totalC2Sec += currentC2Sec; }
 
         // Don't forget to set your state right here before the block closes!
         setState(() {
@@ -454,6 +607,17 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
             _avgHeatSetTemp = sumHeatSetTemp / countHeatSetTemp;
           if (countCoolSetTemp > 0)
             _avgCoolSetTemp = sumCoolSetTemp / countCoolSetTemp;
+          // Add the newly calculated speeds right here at the bottom of setState
+          if (totalS1Sec > 0)
+            _stage1HeatingSpeed = totalS1Delta / (totalS1Sec / 3600);
+          if (totalS2Sec > 0)
+            _stage2HeatingSpeed = totalS2Delta / (totalS2Sec / 3600);
+          if (totalAuxSec > 0)
+            _auxHeatingSpeed = totalAuxDelta / (totalAuxSec / 3600);
+
+          if (totalC1Sec > 0) _stage1CoolingSpeed = totalC1Delta / (totalC1Sec / 3600);
+          if (totalC2Sec > 0) _stage2CoolingSpeed = totalC2Delta / (totalC2Sec / 3600);
+
         });
       } // <-- The entire csvRows.length >= 6 block finally closes here!
 
@@ -715,43 +879,41 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                 child: Column(
                   children: [
                     MouseRegion(
-                          // The cursor will now correctly show the pointer/hand
-                          cursor: (_latestVersion != null &&
-                                  !_isUpToDate(widget.version, _latestVersion!))
-                              ? SystemMouseCursors.click
-                              : SystemMouseCursors.basic,
-                          child: GestureDetector(
-                            onTap: () {
-                              if (_latestVersion != null &&
-                                  !_isUpToDate(
-                                      widget.version, _latestVersion!)) {
-                                html.window.location.reload();
-                              }
-                            },
-                            child:
-
-                            Align(
-                              alignment: Alignment.centerRight, // This forces the widget to the right side
-                              child: Text(
-                                displayVersionText,
-                                style: TextStyle(
-                                  color: versionColor,
-                                  fontSize: 12,
-                                  fontWeight: versionWeight,
-                                  decoration: (_latestVersion != null &&
-                                      !_isUpToDate(
-                                        widget.version,
-                                        _latestVersion!,
-                                      ))
-                                      ? TextDecoration.underline
-                                      : TextDecoration.none,
-                                ),
+                      // The cursor will now correctly show the pointer/hand
+                      cursor: (_latestVersion != null &&
+                              !_isUpToDate(widget.version, _latestVersion!))
+                          ? SystemMouseCursors.click
+                          : SystemMouseCursors.basic,
+                      child: GestureDetector(
+                          onTap: () {
+                            if (_latestVersion != null &&
+                                !_isUpToDate(widget.version, _latestVersion!)) {
+                              html.window.location.reload();
+                            }
+                          },
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            // This forces the widget to the right side
+                            child: Text(
+                              displayVersionText,
+                              style: TextStyle(
+                                color: versionColor,
+                                fontSize: 12,
+                                fontWeight: versionWeight,
+                                decoration: (_latestVersion != null &&
+                                        !_isUpToDate(
+                                          widget.version,
+                                          _latestVersion!,
+                                        ))
+                                    ? TextDecoration.underline
+                                    : TextDecoration.none,
                               ),
-                            )
-
-                          ),
-                        ),
-SizedBox(height: 30,),
+                            ),
+                          )),
+                    ),
+                    SizedBox(
+                      height: 30,
+                    ),
 
                     //
                     // SectionCard(
@@ -835,642 +997,723 @@ SizedBox(height: 30,),
                     // ==========================================
                     if (_serialNumber != null)
                       Wrap(
-                          spacing: 24.0,
-                          // The horizontal gap between the cards
-                          runSpacing: 24.0,
-                          // The vertical gap when a card gets pushed to the next row
-                          alignment: WrapAlignment.spaceBetween,
-                          // Centers the cards in the available space
-                          children: [
+                        spacing: 24.0,
+                        // The horizontal gap between the cards
+                        runSpacing: 24.0,
+                        // The vertical gap when a card gets pushed to the next row
+                        alignment: WrapAlignment.spaceBetween,
+                        // Centers the cards in the available space
+                        children: [
+                          ExpandableSectionCard(
+                            maxWidth: 350,
+                            title: "Thermostat Report Summary",
+                            titleBackgroundColor: Colors.grey.shade300,
+                            titleColor: Colors.black,
+                            initiallyExpanded: true,
+                            children: [
+                              Align(
+                                alignment: Alignment.topLeft,
+                                child: Container(
+                                  width: double.infinity,
+                                  margin: const EdgeInsets.only(bottom: 8),
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 4, horizontal: 8),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFFFFF00),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(color: Colors.black12),
+                                  ),
+                                  child: TipText(
+                                    "Thermostat Serial Number: $_serialNumber",
+                                    textAlign: TextAlign.left,
+                                  ),
+                                ),
+                              ),
+                              Align(
+                                alignment: Alignment.topLeft,
+                                child: Container(
+                                  margin: const EdgeInsets.only(bottom: 8),
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 4, horizontal: 8),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFFFFF00),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(color: Colors.black12),
+                                  ),
+                                  child: TipText(
+                                    "Thermostat Name: $_thermostatName",
+                                    textAlign: TextAlign.left,
+                                  ),
+                                ),
+                              ),
+                              if (_startDate != null)
+                                Align(
+                                  alignment: Alignment.topLeft,
+                                  child: Container(
+                                    margin: const EdgeInsets.only(bottom: 8),
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 4, horizontal: 8),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFFFFF00),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: Colors.black12),
+                                    ),
+                                    child: TipText(
+                                      "Start Date: $_startDate",
+                                      textAlign: TextAlign.left,
+                                    ),
+                                  ),
+                                ),
+                              if (_endDate != null)
+                                Align(
+                                  alignment: Alignment.topLeft,
+                                  child: Container(
+                                    margin: const EdgeInsets.only(bottom: 8),
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 4, horizontal: 8),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFFFFF00),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: Colors.black12),
+                                    ),
+                                    child: TipText(
+                                      "End Date: $_endDate",
+                                      textAlign: TextAlign.left,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+
+                          // ==========================================
+                          // 2. HVAC SYSTEM RUNTIME CARD
+                          // ==========================================
+                          if (_serialNumber != null)
                             ExpandableSectionCard(
-                              maxWidth: 350,
-                              title: "Thermostat Report Summary",
-                              titleBackgroundColor: Colors.grey.shade300,
+                              maxWidth: 380,
+                              title: "Overall Stats",
+                              titleBackgroundColor: Colors.blueGrey.shade100,
+                              // Giving this its own header color
                               titleColor: Colors.black,
                               initiallyExpanded: true,
                               children: [
-                                Align(
-                                  alignment: Alignment.topLeft,
-                                  child: Container(
-                                      width: double.infinity,
-                                    margin: const EdgeInsets.only(bottom: 8),
+                                Center(
+                                  child: Padding(
                                     padding: const EdgeInsets.symmetric(
-                                        vertical: 4, horizontal: 8),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFFFFF00),
-                                      borderRadius: BorderRadius.circular(6),
-                                      border:
-                                          Border.all(color: Colors.black12),
-                                    ),
-                                    child: TipText(
-                                      "Thermostat Serial Number: $_serialNumber",
-                                      textAlign: TextAlign.left,
+                                        vertical: 5.0),
+                                    child: Text(
+                                      "Reboots",
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w600,
+                                        // Medium-bold weight looks cleaner than standard bold
+                                        color: Colors.blueGrey.shade800,
+                                        letterSpacing:
+                                            0.5, // Adds a slight modern touch
+                                      ),
                                     ),
                                   ),
                                 ),
-                                Align(
-                                  alignment: Alignment.topLeft,
-                                  child: Container(
-                                    margin: const EdgeInsets.only(bottom: 8),
-                                    padding: const EdgeInsets.symmetric(
-                                        vertical: 4, horizontal: 8),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFFFFF00),
-                                      borderRadius: BorderRadius.circular(6),
-                                      border:
-                                          Border.all(color: Colors.black12),
-                                    ),
-                                    child: TipText(
-                                      "Thermostat Name: $_thermostatName",
-                                      textAlign: TextAlign.left,
-                                    ),
-                                  ),
-                                ),
-                                if (_startDate != null)
+
+                                if (_rebootCount != null)
                                   Align(
                                     alignment: Alignment.topLeft,
                                     child: Container(
-                                      margin:
-                                          const EdgeInsets.only(bottom: 8),
+                                      margin: const EdgeInsets.only(bottom: 16),
                                       padding: const EdgeInsets.symmetric(
                                           vertical: 4, horizontal: 8),
                                       decoration: BoxDecoration(
-                                        color: const Color(0xFFFFFF00),
-                                        borderRadius:
-                                            BorderRadius.circular(6),
+                                        color: const Color(0xFFEF5350),
+                                        borderRadius: BorderRadius.circular(6),
                                         border:
                                             Border.all(color: Colors.black12),
                                       ),
                                       child: TipText(
-                                        "Start Date: $_startDate",
+                                        "Total Reboots: $_rebootCount",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
                                   ),
-                                if (_endDate != null)
+
+                                if (_rebootsOnHeat != null && _rebootCount! > 0)
                                   Align(
                                     alignment: Alignment.topLeft,
                                     child: Container(
-                                      margin:
-                                          const EdgeInsets.only(bottom: 8),
+                                      margin: const EdgeInsets.only(bottom: 4),
                                       padding: const EdgeInsets.symmetric(
                                           vertical: 4, horizontal: 8),
                                       decoration: BoxDecoration(
-                                        color: const Color(0xFFFFFF00),
-                                        borderRadius:
-                                            BorderRadius.circular(6),
+                                        color: const Color(0xFFFFE5E8),
+                                        // Light Red
+                                        borderRadius: BorderRadius.circular(6),
                                         border:
                                             Border.all(color: Colors.black12),
                                       ),
                                       child: TipText(
-                                        "End Date: $_endDate",
+                                          "Rebooting on heating calls: $_rebootsOnHeat",
+                                          textAlign: TextAlign.left),
+                                    ),
+                                  ),
+
+                                if (_rebootsOnNone != null && _rebootCount! > 0)
+                                  Align(
+                                    alignment: Alignment.topLeft,
+                                    child: Container(
+                                      margin: const EdgeInsets.only(bottom: 4),
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 4, horizontal: 8),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFF3F4F6),
+                                        // Neutral Grey
+                                        borderRadius: BorderRadius.circular(6),
+                                        border:
+                                            Border.all(color: Colors.black12),
+                                      ),
+                                      child: TipText(
+                                          "Rebooting on no equipment running: $_rebootsOnNone",
+                                          textAlign: TextAlign.left),
+                                    ),
+                                  ),
+
+                                if (_rebootsOnCool != null && _rebootCount! > 0)
+                                  Align(
+                                    alignment: Alignment.topLeft,
+                                    child: Container(
+                                      margin: const EdgeInsets.only(bottom: 16),
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 4, horizontal: 8),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFCADFF2),
+                                        // Light Blue
+                                        borderRadius: BorderRadius.circular(6),
+                                        border:
+                                            Border.all(color: Colors.black12),
+                                      ),
+                                      child: TipText(
+                                          "Rebooting on cooling calls: $_rebootsOnCool",
+                                          textAlign: TextAlign.left),
+                                    ),
+                                  ),
+
+                                Divider(
+                                  height: 3,
+                                  // Vertical layout space allocating 16px above and 16px below line
+                                  thickness: 1,
+                                  // Definite thin border profile
+                                  color: Colors
+                                      .black12, // Standard subtle layout line matching app themes
+                                ),
+
+                                Center(
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 12.0),
+                                    child: Text(
+                                      "Runtimes",
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w600,
+                                        // Medium-bold weight looks cleaner than standard bold
+                                        color: Colors.blueGrey.shade800,
+                                        letterSpacing:
+                                            0.5, // Adds a slight modern touch
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                if (_totalFanHours != null)
+                                  Align(
+                                    alignment: Alignment.topLeft,
+                                    child: Container(
+                                      margin: const EdgeInsets.only(bottom: 8),
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 4, horizontal: 8),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFC6E0B4),
+                                        borderRadius: BorderRadius.circular(6),
+                                        border:
+                                            Border.all(color: Colors.black12),
+                                      ),
+                                      child: TipText(
+                                        "Fan: ${(_totalFanHours! * 3600).toInt()} seconds (${_totalFanHours!.toStringAsFixed(2)} hours)",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
                                   ),
+
+                                // COOLING STAGES
+                                if (_totalCool1Hours != null)
+                                  Align(
+                                    alignment: Alignment.topLeft,
+                                    child: Container(
+                                      margin: const EdgeInsets.only(bottom: 8),
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 4, horizontal: 8),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFCADFF2),
+                                        borderRadius: BorderRadius.circular(6),
+                                        border:
+                                            Border.all(color: Colors.black12),
+                                      ),
+                                      child: TipText(
+                                          "Cool (Stage 1): ${(_totalCool1Hours! * 3600).toInt()} seconds (${_totalCool1Hours!.toStringAsFixed(2)} hours)",
+                                          textAlign: TextAlign.left),
+                                    ),
+                                  ),
+                                if (_totalCool2Hours != null)
+                                  Align(
+                                    alignment: Alignment.topLeft,
+                                    child: Container(
+                                      margin: const EdgeInsets.only(bottom: 8),
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 4, horizontal: 8),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFCADFF2),
+                                        borderRadius: BorderRadius.circular(6),
+                                        border:
+                                            Border.all(color: Colors.black12),
+                                      ),
+                                      child: TipText(
+                                          "Cool (Stage 2): ${(_totalCool2Hours! * 3600).toInt()} seconds (${_totalCool2Hours!.toStringAsFixed(2)} hours)",
+                                          textAlign: TextAlign.left),
+                                    ),
+                                  ),
+
+                                // HEATING STAGES
+                                if (_totalHeat1Hours != null)
+                                  Align(
+                                    alignment: Alignment.topLeft,
+                                    child: Container(
+                                      margin: const EdgeInsets.only(bottom: 8),
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 4, horizontal: 8),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFFFE5E8),
+                                        borderRadius: BorderRadius.circular(6),
+                                        border:
+                                            Border.all(color: Colors.black12),
+                                      ),
+                                      child: TipText(
+                                          "Heat (Stage 1): ${(_totalHeat1Hours! * 3600).toInt()} seconds (${_totalHeat1Hours!.toStringAsFixed(2)} hours)",
+                                          textAlign: TextAlign.left),
+                                    ),
+                                  ),
+                                if (_totalHeat2Hours != null)
+                                  Align(
+                                    alignment: Alignment.topLeft,
+                                    child: Container(
+                                      margin: const EdgeInsets.only(bottom: 8),
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 4, horizontal: 8),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFFFE5E8),
+                                        borderRadius: BorderRadius.circular(6),
+                                        border:
+                                            Border.all(color: Colors.black12),
+                                      ),
+                                      child: TipText(
+                                          "Heat (Stage 2): ${(_totalHeat2Hours! * 3600).toInt()} seconds (${_totalHeat2Hours!.toStringAsFixed(2)} hours)",
+                                          textAlign: TextAlign.left),
+                                    ),
+                                  ),
+
+                                // AUX HEATING STAGES
+                                if (_totalAux1Hours != null)
+                                  Align(
+                                    alignment: Alignment.topLeft,
+                                    child: Container(
+                                      margin: const EdgeInsets.only(bottom: 8),
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 4, horizontal: 8),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFFFE5E8),
+                                        borderRadius: BorderRadius.circular(6),
+                                        border:
+                                            Border.all(color: Colors.black12),
+                                      ),
+                                      child: TipText(
+                                          "Aux Heat (Stage 1): ${(_totalAux1Hours! * 3600).toInt()} seconds (${_totalAux1Hours!.toStringAsFixed(2)} hours)",
+                                          textAlign: TextAlign.left),
+                                    ),
+                                  ),
+                                if (_totalAux2Hours != null)
+                                  Align(
+                                    alignment: Alignment.topLeft,
+                                    child: Container(
+                                      margin: const EdgeInsets.only(bottom: 8),
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 4, horizontal: 8),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFFFE5E8),
+                                        borderRadius: BorderRadius.circular(6),
+                                        border:
+                                            Border.all(color: Colors.black12),
+                                      ),
+                                      child: TipText(
+                                          "Aux Heat (Stage 2): ${(_totalAux2Hours! * 3600).toInt()} seconds (${_totalAux2Hours!.toStringAsFixed(2)} hours)",
+                                          textAlign: TextAlign.left),
+                                    ),
+                                  ),
+
+
+
+                                Divider(
+                                  height: 3,
+                                  // Vertical layout space allocating 16px above and 16px below line
+                                  thickness: 1,
+                                  // Definite thin border profile
+                                  color: Colors
+                                      .black12, // Standard subtle layout line matching app themes
+                                ),
+
+
+
+                                Center(
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 12.0),
+                                    child: Text(
+                                      "Average Set Temperature",
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w600,
+                                        // Medium-bold weight looks cleaner than standard bold
+                                        color: Colors.blueGrey.shade800,
+                                        letterSpacing:
+                                            0.5, // Adds a slight modern touch
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                if (_avgHeatSetTemp != null)
+                                  Align(
+                                    alignment: Alignment.topLeft,
+                                    child: Container(
+                                      margin: const EdgeInsets.only(bottom: 8),
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 4, horizontal: 8),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFFFE5E8),
+                                        // Light Red
+                                        borderRadius: BorderRadius.circular(6),
+                                        border:
+                                            Border.all(color: Colors.black12),
+                                      ),
+                                      child: TipText(
+                                        "Heat: ${_avgHeatSetTemp!.toStringAsFixed(1)}°",
+                                        textAlign: TextAlign.left,
+                                      ),
+                                    ),
+                                  ),
+
+                                if (_avgCoolSetTemp != null)
+                                  Align(
+                                    alignment: Alignment.topLeft,
+                                    child: Container(
+                                      margin: const EdgeInsets.only(bottom: 8),
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 4, horizontal: 8),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFCADFF2),
+                                        // Light Blue
+                                        borderRadius: BorderRadius.circular(6),
+                                        border:
+                                            Border.all(color: Colors.black12),
+                                      ),
+                                      child: TipText(
+                                        "Cool: ${_avgCoolSetTemp!.toStringAsFixed(1)}°",
+                                        textAlign: TextAlign.left,
+                                      ),
+                                    ),
+                                  ),
+
+                                Center(
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 12.0),
+                                    child: Text(
+                                      "Runtime Efficiency (°/hr)",
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.blueGrey.shade800,
+                                        letterSpacing: 0.5,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+
+                                if (_stage1HeatingSpeed != null)
+                                  Align(
+                                    alignment: Alignment.topLeft,
+                                    child: Container(
+                                      margin: const EdgeInsets.only(bottom: 8),
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 4, horizontal: 8),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFFFE5E8),
+                                        borderRadius: BorderRadius.circular(6),
+                                        border:
+                                            Border.all(color: Colors.black12),
+                                      ),
+                                      child: TipText(
+                                        "Heating Stage 1: ${_stage1HeatingSpeed!.toStringAsFixed(2)} °/hr",
+                                        textAlign: TextAlign.left,
+                                      ),
+                                    ),
+                                  ),
+
+                                if (_stage2HeatingSpeed != null)
+                                  Align(
+                                    alignment: Alignment.topLeft,
+                                    child: Container(
+                                      margin: const EdgeInsets.only(bottom: 8),
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 4, horizontal: 8),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFFFCCAA),
+                                        // A slightly warmer color for Stage 2
+                                        borderRadius: BorderRadius.circular(6),
+                                        border:
+                                            Border.all(color: Colors.black12),
+                                      ),
+                                      child: TipText(
+                                        "Heating Stage 2: ${_stage2HeatingSpeed!.toStringAsFixed(2)} °/hr",
+                                        textAlign: TextAlign.left,
+                                      ),
+                                    ),
+                                  ),
+
+                                if (_auxHeatingSpeed != null)
+                                  Align(
+                                    alignment: Alignment.topLeft,
+                                    child: Container(
+                                      margin: const EdgeInsets.only(bottom: 8),
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 4, horizontal: 8),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFFF9999),
+                                        // Hotter color for Aux
+                                        borderRadius: BorderRadius.circular(6),
+                                        border:
+                                            Border.all(color: Colors.black12),
+                                      ),
+                                      child: TipText(
+                                        "Heating Aux Heat: ${_auxHeatingSpeed!.toStringAsFixed(2)} °/hr",
+                                        textAlign: TextAlign.left,
+                                      ),
+                                    ),
+                                  ),
+
+
+                                // Add this after your heating speed widgets
+                                if (_stage1CoolingSpeed != null)
+                                  Align(
+                                    alignment: Alignment.topLeft,
+                                    child: Container(
+                                      margin: const EdgeInsets.only(bottom: 8),
+                                      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFCADFF2), // Light Blue
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(color: Colors.black12),
+                                      ),
+                                      child: TipText(
+                                        "Cool Stage 1: ${_stage1CoolingSpeed!.toStringAsFixed(2)} °/hr",
+                                        textAlign: TextAlign.left,
+                                      ),
+                                    ),
+                                  ),
+
+                                if (_stage2CoolingSpeed != null)
+                                  Align(
+                                    alignment: Alignment.topLeft,
+                                    child: Container(
+                                      margin: const EdgeInsets.only(bottom: 8),
+                                      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF99CCFF), // Darker Blue
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(color: Colors.black12),
+                                      ),
+                                      child: TipText(
+                                        "Cool Stage 2: ${_stage2CoolingSpeed!.toStringAsFixed(2)} °/hr",
+                                        textAlign: TextAlign.left,
+                                      ),
+                                    ),
+                                  ),
+
+
+
+
                               ],
                             ),
 
-                            // ==========================================
-                            // 2. HVAC SYSTEM RUNTIME CARD
-                            // ==========================================
-                            if (_serialNumber != null)
-                              ExpandableSectionCard(
-                                maxWidth: 380,
-                                title: "Overall Stats",
-                                titleBackgroundColor: Colors.blueGrey.shade100,
-                                // Giving this its own header color
-                                titleColor: Colors.black,
-                                initiallyExpanded: true,
-                                children: [
-
-
-                                  Center(
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(vertical: 5.0),
-                                      child: Text(
-                                        "Reboots",
-                                        style: TextStyle(
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.w600, // Medium-bold weight looks cleaner than standard bold
-                                          color: Colors.blueGrey.shade800,
-                                          letterSpacing: 0.5, // Adds a slight modern touch
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-
-                                  if (_rebootCount != null)
-                                    Align(
-                                      alignment: Alignment.topLeft,
-                                      child: Container(
-                                        margin:
-                                        const EdgeInsets.only(bottom: 16),
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 4, horizontal: 8),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFEF5350),
-                                          borderRadius:
-                                          BorderRadius.circular(6),
-                                          border: Border.all(
-                                              color: Colors.black12),
-                                        ),
-                                        child: TipText(
-                                          "Total Reboots: $_rebootCount",
-                                          textAlign: TextAlign.left,
-                                        ),
-                                      ),
-                                    ),
-
-                                  if (_rebootsOnHeat != null &&
-                                      _rebootCount! > 0)
-                                    Align(
-                                      alignment: Alignment.topLeft,
-                                      child: Container(
-                                        margin:
-                                        const EdgeInsets.only(bottom: 4),
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 4, horizontal: 8),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFFFE5E8),
-                                          // Light Red
-                                          borderRadius:
-                                          BorderRadius.circular(6),
-                                          border: Border.all(
-                                              color: Colors.black12),
-                                        ),
-                                        child: TipText(
-                                            "Rebooting on heating calls: $_rebootsOnHeat",
-                                            textAlign: TextAlign.left),
-                                      ),
-                                    ),
-
-                                  if (_rebootsOnNone != null &&
-                                      _rebootCount! > 0)
-                                    Align(
-                                      alignment: Alignment.topLeft,
-                                      child: Container(
-                                        margin:
-                                        const EdgeInsets.only(bottom: 4),
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 4, horizontal: 8),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFF3F4F6),
-                                          // Neutral Grey
-                                          borderRadius:
-                                          BorderRadius.circular(6),
-                                          border: Border.all(
-                                              color: Colors.black12),
-                                        ),
-                                        child: TipText(
-                                            "Rebooting on no equipment running: $_rebootsOnNone",
-                                            textAlign: TextAlign.left),
-                                      ),
-                                    ),
-
-                                  if (_rebootsOnCool != null &&
-                                      _rebootCount! > 0)
-                                    Align(
-                                      alignment: Alignment.topLeft,
-                                      child: Container(
-                                        margin:
-                                        const EdgeInsets.only(bottom: 16),
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 4, horizontal: 8),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFCADFF2),
-                                          // Light Blue
-                                          borderRadius:
-                                          BorderRadius.circular(6),
-                                          border: Border.all(
-                                              color: Colors.black12),
-                                        ),
-                                        child: TipText(
-                                            "Rebooting on cooling calls: $_rebootsOnCool",
-                                            textAlign: TextAlign.left),
-                                      ),
-                                    ),
-
-                                  Divider(
-                                    height: 3,
-                                    // Vertical layout space allocating 16px above and 16px below line
-                                    thickness: 1,
-                                    // Definite thin border profile
-                                    color: Colors
-                                        .black12, // Standard subtle layout line matching app themes
-                                  ),
-
-                                  Center(
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(vertical: 12.0),
-                                      child: Text(
-                                        "Runtimes",
-                                        style: TextStyle(
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.w600, // Medium-bold weight looks cleaner than standard bold
-                                          color: Colors.blueGrey.shade800,
-                                          letterSpacing: 0.5, // Adds a slight modern touch
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  if (_totalFanHours != null)
-                                    Align(
-                                      alignment: Alignment.topLeft,
-                                      child: Container(
-                                        margin:
-                                            const EdgeInsets.only(bottom: 8),
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 4, horizontal: 8),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFC6E0B4),
-                                          borderRadius:
-                                              BorderRadius.circular(6),
-                                          border: Border.all(
-                                              color: Colors.black12),
-                                        ),
-                                        child: TipText(
-                                          "Fan: ${(_totalFanHours! * 3600).toInt()} seconds (${_totalFanHours!.toStringAsFixed(2)} hours)",
-                                          textAlign: TextAlign.left,
-                                        ),
-                                      ),
-                                    ),
-
-                                  // COOLING STAGES
-                                  if (_totalCool1Hours != null)
-                                    Align(
-                                      alignment: Alignment.topLeft,
-                                      child: Container(
-                                        margin:
-                                            const EdgeInsets.only(bottom: 8),
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 4, horizontal: 8),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFCADFF2),
-                                          borderRadius:
-                                              BorderRadius.circular(6),
-                                          border: Border.all(
-                                              color: Colors.black12),
-                                        ),
-                                        child: TipText(
-                                            "Cool (Stage 1): ${(_totalCool1Hours! * 3600).toInt()} seconds (${_totalCool1Hours!.toStringAsFixed(2)} hours)",
-                                            textAlign: TextAlign.left),
-                                      ),
-                                    ),
-                                  if (_totalCool2Hours != null)
-                                    Align(
-                                      alignment: Alignment.topLeft,
-                                      child: Container(
-                                        margin:
-                                            const EdgeInsets.only(bottom: 8),
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 4, horizontal: 8),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFCADFF2),
-                                          borderRadius:
-                                              BorderRadius.circular(6),
-                                          border: Border.all(
-                                              color: Colors.black12),
-                                        ),
-                                        child: TipText(
-                                            "Cool (Stage 2): ${(_totalCool2Hours! * 3600).toInt()} seconds (${_totalCool2Hours!.toStringAsFixed(2)} hours)",
-                                            textAlign: TextAlign.left),
-                                      ),
-                                    ),
-
-                                  // HEATING STAGES
-                                  if (_totalHeat1Hours != null)
-                                    Align(
-                                      alignment: Alignment.topLeft,
-                                      child: Container(
-                                        margin:
-                                            const EdgeInsets.only(bottom: 8),
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 4, horizontal: 8),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFFFE5E8),
-                                          borderRadius:
-                                              BorderRadius.circular(6),
-                                          border: Border.all(
-                                              color: Colors.black12),
-                                        ),
-                                        child: TipText(
-                                            "Heat (Stage 1): ${(_totalHeat1Hours! * 3600).toInt()} seconds (${_totalHeat1Hours!.toStringAsFixed(2)} hours)",
-                                            textAlign: TextAlign.left),
-                                      ),
-                                    ),
-                                  if (_totalHeat2Hours != null)
-                                    Align(
-                                      alignment: Alignment.topLeft,
-                                      child: Container(
-                                        margin:
-                                            const EdgeInsets.only(bottom: 8),
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 4, horizontal: 8),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFFFE5E8),
-                                          borderRadius:
-                                              BorderRadius.circular(6),
-                                          border: Border.all(
-                                              color: Colors.black12),
-                                        ),
-                                        child: TipText(
-                                            "Heat (Stage 2): ${(_totalHeat2Hours! * 3600).toInt()} seconds (${_totalHeat2Hours!.toStringAsFixed(2)} hours)",
-                                            textAlign: TextAlign.left),
-                                      ),
-                                    ),
-
-                                  // AUX HEATING STAGES
-                                  if (_totalAux1Hours != null)
-                                    Align(
-                                      alignment: Alignment.topLeft,
-                                      child: Container(
-                                        margin:
-                                            const EdgeInsets.only(bottom: 8),
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 4, horizontal: 8),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFFFE5E8),
-                                          borderRadius:
-                                              BorderRadius.circular(6),
-                                          border: Border.all(
-                                              color: Colors.black12),
-                                        ),
-                                        child: TipText(
-                                            "Aux Heat (Stage 1): ${(_totalAux1Hours! * 3600).toInt()} seconds (${_totalAux1Hours!.toStringAsFixed(2)} hours)",
-                                            textAlign: TextAlign.left),
-                                      ),
-                                    ),
-                                  if (_totalAux2Hours != null)
-                                    Align(
-                                      alignment: Alignment.topLeft,
-                                      child: Container(
-                                        margin:
-                                            const EdgeInsets.only(bottom: 8),
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 4, horizontal: 8),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFFFE5E8),
-                                          borderRadius:
-                                              BorderRadius.circular(6),
-                                          border: Border.all(
-                                              color: Colors.black12),
-                                        ),
-                                        child: TipText(
-                                            "Aux Heat (Stage 2): ${(_totalAux2Hours! * 3600).toInt()} seconds (${_totalAux2Hours!.toStringAsFixed(2)} hours)",
-                                            textAlign: TextAlign.left),
-                                      ),
-                                    ),
-
-                                  Divider(
-                                    height: 3,
-                                    // Vertical layout space allocating 16px above and 16px below line
-                                    thickness: 1,
-                                    // Definite thin border profile
-                                    color: Colors
-                                        .black12, // Standard subtle layout line matching app themes
-                                  ),
-
-                                  Center(
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(vertical: 12.0),
-                                      child: Text(
-                                        "Average Set Temperature",
-                                        style: TextStyle(
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.w600, // Medium-bold weight looks cleaner than standard bold
-                                          color: Colors.blueGrey.shade800,
-                                          letterSpacing: 0.5, // Adds a slight modern touch
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  if (_avgHeatSetTemp != null)
-                                    Align(
-                                      alignment: Alignment.topLeft,
-                                      child: Container(
-                                        margin:
-                                            const EdgeInsets.only(bottom: 8),
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 4, horizontal: 8),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFFFE5E8),
-                                          // Light Red
-                                          borderRadius:
-                                              BorderRadius.circular(6),
-                                          border: Border.all(
-                                              color: Colors.black12),
-                                        ),
-                                        child: TipText(
-                                          "Heat: ${_avgHeatSetTemp!.toStringAsFixed(1)}°",
-                                          textAlign: TextAlign.left,
-                                        ),
-                                      ),
-                                    ),
-
-                                  if (_avgCoolSetTemp != null)
-                                    Align(
-                                      alignment: Alignment.topLeft,
-                                      child: Container(
-                                        margin:
-                                            const EdgeInsets.only(bottom: 8),
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 4, horizontal: 8),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFCADFF2),
-                                          // Light Blue
-                                          borderRadius:
-                                              BorderRadius.circular(6),
-                                          border: Border.all(
-                                              color: Colors.black12),
-                                        ),
-                                        child: TipText(
-                                          "Cool: ${_avgCoolSetTemp!.toStringAsFixed(1)}°",
-                                          textAlign: TextAlign.left,
-                                        ),
-                                      ),
-                                    ),
-
-
-
-                                ],
-                              ),
-
-                            if (_serialNumber != null)
-                              ExpandableSectionCard(
-                                maxWidth: 350,
-                                title:
-                                    " Reboot Indicators Table (${_rebootCount ?? 0})",
-                                titleColor: Colors.black,
-                                titleBackgroundColor: const Color(0xFFEF5350),
-                                initiallyExpanded: false,
-                                // Set to false if you want it closed by default
-                                children: [
-                                  // You can build your table here using DataTable or a ListView
-                                  // For example, mapping through your _rebootDetails list:
-                                  if (_rebootDetails.isNotEmpty)
-                                    Column(
-                                      children: [
-                                        Align(
-                                          alignment: Alignment.topLeft,
-                                          child: Table(
-                                            border: TableBorder.all(
-                                              color: Colors.grey.shade300,
-                                              width: 1,
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
-                                            ),
-                                            columnWidths: const {
-                                              0: FixedColumnWidth(60),
-                                              // Compact width for the counter column
-                                              1: FixedColumnWidth(110),
-                                              // Evenly expands to fill the remaining width
-                                              2: FixedColumnWidth(110),
-                                              // Evenly expands to fill the remaining width
-                                            },
-                                            defaultVerticalAlignment:
-                                                TableCellVerticalAlignment
-                                                    .middle,
-                                            children: [
-                                              // 1. Table Header Row
-                                              TableRow(
-                                                decoration: BoxDecoration(
-                                                  color: Colors.grey.shade100,
+                          if (_serialNumber != null)
+                            ExpandableSectionCard(
+                              maxWidth: 350,
+                              title:
+                                  " Reboot Indicators Table (${_rebootCount ?? 0})",
+                              titleColor: Colors.black,
+                              titleBackgroundColor: const Color(0xFFEF5350),
+                              initiallyExpanded: false,
+                              // Set to false if you want it closed by default
+                              children: [
+                                // You can build your table here using DataTable or a ListView
+                                // For example, mapping through your _rebootDetails list:
+                                if (_rebootDetails.isNotEmpty)
+                                  Column(
+                                    children: [
+                                      Align(
+                                        alignment: Alignment.topLeft,
+                                        child: Table(
+                                          border: TableBorder.all(
+                                            color: Colors.grey.shade300,
+                                            width: 1,
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                          ),
+                                          columnWidths: const {
+                                            0: FixedColumnWidth(60),
+                                            // Compact width for the counter column
+                                            1: FixedColumnWidth(110),
+                                            // Evenly expands to fill the remaining width
+                                            2: FixedColumnWidth(110),
+                                            // Evenly expands to fill the remaining width
+                                          },
+                                          defaultVerticalAlignment:
+                                              TableCellVerticalAlignment.middle,
+                                          children: [
+                                            // 1. Table Header Row
+                                            TableRow(
+                                              decoration: BoxDecoration(
+                                                color: Colors.grey.shade100,
+                                              ),
+                                              children: [
+                                                Padding(
+                                                  padding: const EdgeInsets.all(
+                                                      10.0),
+                                                  child: Text(
+                                                    '#',
+                                                    textAlign: TextAlign.center,
+                                                    style: TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                        color: Colors
+                                                            .blueGrey.shade700),
+                                                  ),
                                                 ),
+                                                Padding(
+                                                  padding: const EdgeInsets.all(
+                                                      10.0),
+                                                  child: Text(
+                                                    'Start Date',
+                                                    textAlign: TextAlign.center,
+                                                    style: TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                        color: Colors
+                                                            .blueGrey.shade700),
+                                                  ),
+                                                ),
+                                                Padding(
+                                                  padding: const EdgeInsets.all(
+                                                      10.0),
+                                                  child: Text(
+                                                    'Start Time',
+                                                    textAlign: TextAlign.center,
+                                                    style: TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                        color: Colors
+                                                            .blueGrey.shade700),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+
+                                            // Dynamic Table Data Rows
+                                            ..._rebootDetails
+                                                .asMap()
+                                                .entries
+                                                .map((entry) {
+                                              final int index = entry.key;
+                                              final dynamic detail =
+                                                  entry.value;
+
+                                              final String rebootCounter =
+                                                  '${index + 1}';
+                                              String rebootStartDate = '';
+                                              String rebootStartTime = '';
+                                              String rebootType = 'None';
+
+                                              // Safely extract from our new Map structure
+                                              if (detail is Map) {
+                                                rebootStartDate = detail['date']
+                                                        ?.toString() ??
+                                                    '';
+                                                rebootStartTime = detail['time']
+                                                        ?.toString() ??
+                                                    '';
+                                                rebootType = detail['type']
+                                                        ?.toString() ??
+                                                    'None';
+                                              }
+
+                                              // Determine the row color based on the equipment state
+                                              Color rowColor = Colors.white;
+                                              if (rebootType == "Heat")
+                                                rowColor = const Color(
+                                                    0xFFFFE5E8); // Light Red
+                                              if (rebootType == "Cool")
+                                                rowColor = const Color(
+                                                    0xFFCADFF2); // Light Blue
+                                              if (rebootType == "None")
+                                                rowColor = const Color(
+                                                    0xFFF9FAFB); // Neutral Grey
+
+                                              return TableRow(
+                                                decoration: BoxDecoration(
+                                                    color: rowColor),
                                                 children: [
                                                   Padding(
                                                     padding:
                                                         const EdgeInsets.all(
                                                             10.0),
-                                                    child: Text(
-                                                      '#',
-                                                      textAlign:
-                                                          TextAlign.center,
-                                                      style: TextStyle(
-                                                          fontWeight:
-                                                              FontWeight.bold,
-                                                          color: Colors.blueGrey
-                                                              .shade700),
-                                                    ),
+                                                    child: Text(rebootCounter,
+                                                        textAlign:
+                                                            TextAlign.center),
                                                   ),
                                                   Padding(
                                                     padding:
                                                         const EdgeInsets.all(
                                                             10.0),
-                                                    child: Text(
-                                                      'Start Date',
-                                                      textAlign:
-                                                          TextAlign.center,
-                                                      style: TextStyle(
-                                                          fontWeight:
-                                                              FontWeight.bold,
-                                                          color: Colors.blueGrey
-                                                              .shade700),
-                                                    ),
+                                                    child: Text(rebootStartDate,
+                                                        textAlign:
+                                                            TextAlign.center),
                                                   ),
                                                   Padding(
                                                     padding:
                                                         const EdgeInsets.all(
                                                             10.0),
-                                                    child: Text(
-                                                      'Start Time',
-                                                      textAlign:
-                                                          TextAlign.center,
-                                                      style: TextStyle(
-                                                          fontWeight:
-                                                              FontWeight.bold,
-                                                          color: Colors.blueGrey
-                                                              .shade700),
-                                                    ),
+                                                    child: Text(rebootStartTime,
+                                                        textAlign:
+                                                            TextAlign.center),
                                                   ),
                                                 ],
-                                              ),
-
-                                              // Dynamic Table Data Rows
-                                              ..._rebootDetails
-                                                  .asMap()
-                                                  .entries
-                                                  .map((entry) {
-                                                final int index = entry.key;
-                                                final dynamic detail =
-                                                    entry.value;
-
-                                                final String rebootCounter =
-                                                    '${index + 1}';
-                                                String rebootStartDate = '';
-                                                String rebootStartTime = '';
-                                                String rebootType = 'None';
-
-                                                // Safely extract from our new Map structure
-                                                if (detail is Map) {
-                                                  rebootStartDate =
-                                                      detail['date']
-                                                              ?.toString() ??
-                                                          '';
-                                                  rebootStartTime =
-                                                      detail['time']
-                                                              ?.toString() ??
-                                                          '';
-                                                  rebootType = detail['type']
-                                                          ?.toString() ??
-                                                      'None';
-                                                }
-
-                                                // Determine the row color based on the equipment state
-                                                Color rowColor = Colors.white;
-                                                if (rebootType == "Heat")
-                                                  rowColor = const Color(
-                                                      0xFFFFE5E8); // Light Red
-                                                if (rebootType == "Cool")
-                                                  rowColor = const Color(
-                                                      0xFFCADFF2); // Light Blue
-                                                if (rebootType == "None")
-                                                  rowColor = const Color(
-                                                      0xFFF9FAFB); // Neutral Grey
-
-                                                return TableRow(
-                                                  decoration: BoxDecoration(
-                                                      color: rowColor),
-                                                  children: [
-                                                    Padding(
-                                                      padding:
-                                                          const EdgeInsets.all(
-                                                              10.0),
-                                                      child: Text(rebootCounter,
-                                                          textAlign:
-                                                              TextAlign.center),
-                                                    ),
-                                                    Padding(
-                                                      padding:
-                                                          const EdgeInsets.all(
-                                                              10.0),
-                                                      child: Text(
-                                                          rebootStartDate,
-                                                          textAlign:
-                                                              TextAlign.center),
-                                                    ),
-                                                    Padding(
-                                                      padding:
-                                                          const EdgeInsets.all(
-                                                              10.0),
-                                                      child: Text(
-                                                          rebootStartTime,
-                                                          textAlign:
-                                                              TextAlign.center),
-                                                    ),
-                                                  ],
-                                                );
-                                              }).toList(),
-                                            ],
-                                          ),
-                                        )
-                                      ],
-                                    )
-                                  else
-                                    const Text("No Issues Here."),
-                                ],
-                              ),
-                          ],)
+                                              );
+                                            }).toList(),
+                                          ],
+                                        ),
+                                      )
+                                    ],
+                                  )
+                                else
+                                  const Text("No Issues Here."),
+                              ],
+                            ),
+                        ],
+                      )
 
                     // const SizedBox(height: 32),
                     // Text(

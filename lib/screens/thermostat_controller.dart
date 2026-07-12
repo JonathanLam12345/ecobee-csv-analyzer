@@ -5,7 +5,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/app_bar.dart';
 import '../widgets/section_card.dart';
 import 'dart:math';
-
+import 'dart:typed_data';
+import 'dart:convert';
+import 'dart:html' as html; // Used to trigger the browser download
 // 1. IMPORT THE MODERN INTEROP LIBRARY
 import 'dart:js_interop';
 
@@ -32,6 +34,8 @@ extension type ExtensionResponse(JSObject _) implements JSObject {
   external String? get temp;
 
   external String? get error;
+  external String? get equipment;
+  external String? get screenshotHex;
 }
 
 class ThermostatControllerPage extends StatefulWidget {
@@ -48,10 +52,12 @@ class _ThermostatControllerPageState extends State<ThermostatControllerPage> {
 
   String _currentTemp = "";
   bool _isLoadingTemp = false;
-  bool _isLoadingIdle = false; // New state for the Idle button
+  bool _isLoadingIdle = false;
   bool _isLoadingLedRed = false;
   bool _isLoadingLedNone = false;
-
+  bool _isLoadingEquipment = false;
+  bool _isLoadingScreenshot = false;
+  Uint8List? _screenshotBytes;
 
   // Your targeted Extension ID
   static const String extensionId = "ddjoaomnhklpfphbabldifdhbophjbfe";
@@ -264,7 +270,7 @@ class _ThermostatControllerPageState extends State<ThermostatControllerPage> {
     });
 
     final jsMessage = {
-      "action": "setLedColor",
+      "action": "setLedRed",
       "color": "red",
       "ip": ip
     }.jsify();
@@ -320,7 +326,7 @@ class _ThermostatControllerPageState extends State<ThermostatControllerPage> {
     });
 
     final jsMessage = {
-      "action": "setLedColor",
+      "action": "setLedOff",
       "color": "none",
       "ip": ip
     }.jsify();
@@ -359,6 +365,149 @@ class _ThermostatControllerPageState extends State<ThermostatControllerPage> {
   }
 
 
+  // --- NEW FUNCTION: FETCH RUNNING EQUIPMENT ---
+  Future<void> _fetchRunningEquipment() async {
+    final serial = _serialController.text.trim();
+    final ip = _ipController.text.trim();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('saved_serial', serial);
+    await prefs.setString('saved_ip', ip);
+
+    if (ip.isEmpty) {
+      setState(() => _currentTemp = "Please enter an IP address first.");
+      return;
+    }
+
+    setState(() {
+      _isLoadingEquipment = true;
+      _currentTemp = "Fetching running equipment...";
+    });
+
+    final jsMessage = {"action": "fetchRunningEquipment", "ip": ip}.jsify();
+
+    if (chrome == null) {
+      setState(() {
+        _isLoadingEquipment = false;
+        _currentTemp = "Bridge failed. Are you using a compatible Chromium browser?";
+      });
+      return;
+    }
+
+    try {
+      chrome!.runtime.sendMessage(
+        extensionId,
+        jsMessage!,
+            (JSAny? response) {
+          setState(() {
+            _isLoadingEquipment = false;
+            if (response != null) {
+              final res = response as ExtensionResponse;
+              if (res.success == true) {
+                // Display the comma-separated string returned from JS
+                _currentTemp = "Running Equipment: ${res.equipment ?? 'None'}";
+              } else {
+                _currentTemp = "Extension Error: ${res.error ?? 'Unknown error'}";
+              }
+            } else {
+              _currentTemp = "Extension Error: No response from bridge.";
+            }
+          });
+        }.toJS,
+      );
+    } catch (e) {
+      setState(() {
+        _isLoadingEquipment = false;
+        _currentTemp = "Failed to communicate with bridge.";
+      });
+      debugPrint("JS Interop invocation error: $e");
+    }
+  }
+
+
+
+
+  // --- NEW FUNCTION: FETCH SCREENSHOT ---
+  Future<void> _fetchScreenshot() async {
+    final ip = _ipController.text.trim();
+
+    if (ip.isEmpty) {
+      setState(() => _currentTemp = "Please enter an IP address first.");
+      return;
+    }
+
+    setState(() {
+      _isLoadingScreenshot = true;
+      _currentTemp = "Fetching screenshot...";
+      _screenshotBytes = null; // Clear any existing screenshot
+    });
+
+    final jsMessage = {"action": "fetchScreenshot", "ip": ip}.jsify();
+
+    if (chrome == null) {
+      setState(() {
+        _isLoadingScreenshot = false;
+        _currentTemp = "Bridge failed. Are you using a compatible Chromium browser?";
+      });
+      return;
+    }
+
+    try {
+      chrome!.runtime.sendMessage(
+        extensionId,
+        jsMessage!,
+            (JSAny? response) {
+          setState(() {
+            _isLoadingScreenshot = false;
+            if (response != null) {
+              final res = response as ExtensionResponse;
+              if (res.success == true && res.screenshotHex != null) {
+                _currentTemp = "Success: Screenshot retrieved.";
+                _screenshotBytes = _hexToBytes(res.screenshotHex!);
+              } else {
+                _currentTemp = "Extension Error: ${res.error ?? 'Unknown error'}";
+              }
+            } else {
+              _currentTemp = "Extension Error: No response from bridge.";
+            }
+          });
+        }.toJS,
+      );
+    } catch (e) {
+      setState(() {
+        _isLoadingScreenshot = false;
+        _currentTemp = "Failed to communicate with bridge.";
+      });
+      debugPrint("JS Interop invocation error: $e");
+    }
+  }
+
+  // --- HELPER FUNCTION: CONVERT HEX TO BYTES ---
+  Uint8List _hexToBytes(String hexStr) {
+    hexStr = hexStr.replaceAll(RegExp(r'\s+'), ''); // Clean up any spaces
+    if (hexStr.length.isOdd) hexStr = '0$hexStr'; // Pad if length is odd
+
+    final bytes = Uint8List(hexStr.length ~/ 2);
+    for (int i = 0; i < bytes.length; i++) {
+      bytes[i] = int.parse(hexStr.substring(i * 2, i * 2 + 2), radix: 16);
+    }
+    return bytes;
+  }
+
+  // --- HELPER FUNCTION: DOWNLOAD IMAGE ---
+  void _downloadScreenshot() {
+    if (_screenshotBytes == null) return;
+
+    // Convert bytes to Base64 to generate a Data URI
+    final base64str = base64Encode(_screenshotBytes!);
+
+    // Create an invisible anchor tag and trigger a click to download
+    html.AnchorElement(href: 'data:image/png;base64,$base64str')
+      ..target = 'blank'
+      ..download = 'thermostat_screenshot.png'
+      ..click();
+  }
+
+
   @override
   void dispose() {
     _serialController.dispose();
@@ -380,7 +529,7 @@ class _ThermostatControllerPageState extends State<ThermostatControllerPage> {
               title: "Thermostat Controller",
               children: [
                 const Text(
-                  "- For faster and more efficient troubleshooting, this screen allows users to enable features such as Adjust Temperature for Humidity, enable the active idle screen, navigate back to the home screen, and more on your physical ecobee thermostat.\n- Please note that this screen is intended for ecobee employees only. I will set up a sign up sheet and reach out to you to confirm the enrollment of your thermostat. \n\n- Please note that this feature is not available at the moment. Please check back again soon.",
+                  "- For faster and more efficient troubleshooting, this screen allows users to activate features such as Adjust Temperature for Humidity, or perform specific actions such as triggering idle screen, navigate back to the home screen, and more on your physical ecobee thermostat.\n- Please note that this screen is intended for ecobee employees only. I will set up a sign up sheet and reach out to you to confirm the enrollment of your thermostat. \n\n- Please note that this feature is not available at the moment. Please check back again soon. For more information, please reach out to Jonathan Lam.",
                   style: TextStyle(fontSize: 14, color: Colors.black87),
                 ),
                 const SizedBox(height: 24),
@@ -497,6 +646,53 @@ class _ThermostatControllerPageState extends State<ThermostatControllerPage> {
                             foregroundColor: Colors.white,
                           ),
                         ),
+
+
+// EQUIPMENT RUNNING NOW
+                        ElevatedButton.icon(
+                          onPressed: _isLoadingTemp || _isLoadingIdle || _isLoadingLedRed || _isLoadingLedNone || _isLoadingEquipment
+                              ? null
+                              : _fetchRunningEquipment,
+                          icon: _isLoadingEquipment
+                              ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                              : const Icon(Icons.hvac),
+                          label: const Text("Equipment Running Now"),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                            backgroundColor: Colors.orange,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+
+
+
+// SCREENSHOT
+                        ElevatedButton.icon(
+                          onPressed: _isLoadingTemp || _isLoadingIdle || _isLoadingLedRed || _isLoadingLedNone || _isLoadingEquipment || _isLoadingScreenshot
+                              ? null
+                              : _fetchScreenshot,
+                          icon: _isLoadingScreenshot
+                              ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                              : const Icon(Icons.camera_alt),
+                          label: const Text("Screenshot"),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                            backgroundColor: Colors.purple,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+
+
+
+
                       ],
                     ),
 
@@ -515,6 +711,45 @@ class _ThermostatControllerPageState extends State<ThermostatControllerPage> {
                             : Colors.green.shade700,
                       ),
                     ),
+
+// (Your existing _currentTemp text widget is here)
+
+                    if (_screenshotBytes != null) ...[
+                      const SizedBox(height: 24),
+                      Text(
+                          "Captured Image:",
+                          style: TextStyle(fontWeight: FontWeight.bold)
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade400, width: 2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        // MemoryImage displays raw Uint8List bytes
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: Image.memory(
+                            _screenshotBytes!,
+                            fit: BoxFit.contain,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton.icon(
+                        onPressed: _downloadScreenshot,
+                        icon: const Icon(Icons.download),
+                        label: const Text("Download Image"),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.indigo,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ]
+
+
+
+
                   ],
                 ),
               ],

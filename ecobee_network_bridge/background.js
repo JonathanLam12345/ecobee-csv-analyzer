@@ -81,6 +81,48 @@ chrome.runtime.onMessageExternal.addListener((request, sender, sendResponse) => 
     .catch(error => sendResponse({ success: false, error: error.message }));
     return true; // Keep message channel open for async response
   }
+if (request.action === "fetchRunningEquipment") {
+    const targetUrl = `http://${request.ip}:8005/running_equipment`;
 
+    fetch(targetUrl, {
+      method: 'GET'
+    })
+    .then(response => {
+      if (!response.ok) throw new Error(`HTTP status ${response.status}`);
+      return response.json(); // Parse the JSON return
+    })
+    .then(data => {
+      // Extract the array and format it as a comma-separated string
+      const equipmentList = (data.equipment && Array.isArray(data.equipment))
+          ? data.equipment.join(", ")
+          : "None";
+
+      sendResponse({ success: true, equipment: equipmentList });
+    })
+    .catch(err => sendResponse({ success: false, error: err.message }));
+
+    return true; // Keep message channel open for async fetch
+  }
+
+  // --- NEW SCREENSHOT LOGIC ---
+    if (request.action === "fetchScreenshot") {
+      const targetUrl = `http://${request.ip}:8005/screenshot`;
+
+      fetch(targetUrl, { method: 'GET' })
+        .then(response => {
+          if (!response.ok) throw new Error(`HTTP status ${response.status}`);
+          return response.text(); // Parse as text to handle the <IMAGE> tags
+        })
+        .then(data => {
+          // Use a regular expression to extract the hex string inside <IMAGE>...</IMAGE>
+          const match = data.match(/<IMAGE>(.*?)<\/IMAGE>/);
+          const hexData = match ? match[1] : data;
+
+          sendResponse({ success: true, screenshotHex: hexData });
+        })
+        .catch(err => sendResponse({ success: false, error: err.message }));
+
+      return true; // Keep message channel open for async fetch
+    }
 
 });
