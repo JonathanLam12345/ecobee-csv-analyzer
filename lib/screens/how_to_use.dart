@@ -41,6 +41,7 @@ class HowToUsePage extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 5),
+
               // ConstrainedBox(
               //   constraints: const BoxConstraints(maxWidth: 900),
               //   child: SectionCard(
