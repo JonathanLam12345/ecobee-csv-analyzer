@@ -6,7 +6,6 @@ import 'package:desktop_drop/desktop_drop.dart';
 import 'package:ecobee_tstat_csv/widgets/chatbot_widget.dart';
 import 'package:ecobee_tstat_csv/widgets/app_bar.dart';
 import 'package:ecobee_tstat_csv/widgets/section_card.dart';
-import 'package:ecobee_tstat_csv/widgets/support_chat_widget.dart';
 import 'package:ecobee_tstat_csv/widgets/tip_text.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -17,6 +16,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:syncfusion_flutter_xlsio/xlsio.dart' as xlsio;
 import 'package:ecobee_tstat_csv/widgets/expandable_section_card.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 // 411955672402--2026-01-01--2026-01-30-reports-data
 
@@ -67,7 +67,10 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
   bool _isDragging = false;
   bool _isProcessing = false;
   bool _isChatOpen = false;
+  bool _removeNewColumns = false;
+  bool _removeAirQuality = false;
   String _statusMessage = "Drag & Drop CSV Here \nor\n Click to Upload";
+
   double? _totalFanHours;
 
   // Add these new variables:
@@ -105,6 +108,8 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
   @override
   void initState() {
     super.initState();
+    _loadPreferences();
+
     _versionRef = FirebaseDatabase.instanceFor(
       app: Firebase.app(),
       databaseURL: 'https://ecobee-csv-analyzer-default-rtdb.firebaseio.com/',
@@ -120,6 +125,23 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       }
     });
   }
+
+// --- ADD THESE METHODS ---
+  Future<void> _loadPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _removeNewColumns = prefs.getBool('removeNewColumns') ?? false;
+      _removeAirQuality = prefs.getBool('removeAirQuality') ?? false;
+    });
+  }
+
+  Future<void> _savePreference(String key, bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(key, value);
+  }
+  // -------------------------
+
+
 
   void _pickFile() {
     final html.FileUploadInputElement uploadInput =
@@ -141,6 +163,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       }
     });
   }
+
   // Commenting this code for github push:
   // // Logic to show the chatbot as a pop-up
   // void _showChatbotPopup() {
@@ -229,6 +252,11 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
 // Find the runtime column indexes early so we can evaluate equipment state
       List<dynamic> earlyHeaderRow =
           csvRows.length >= 6 ? csvRows[5] : <dynamic>[];
+
+// Dynamically find the Outdoor Temp column index (handles slight naming variations)
+      int outdoorTempIdx = earlyHeaderRow.indexWhere(
+              (h) => h.toString().toLowerCase().contains("outdoor temp"));
+
       int rCool1Idx = earlyHeaderRow.indexOf("Cool Stage 1 (sec)");
       int rCool2Idx = earlyHeaderRow.indexOf("Cool Stage 2 (sec)");
       int rHeat1Idx = earlyHeaderRow.indexOf("Heat Stage 1 (sec)");
@@ -243,12 +271,13 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
         // Skip rows that are too short to have Column K
         if (row.length < 11) continue;
 
-        // Column C is index 2 | Column K is index 10
+        // Column C is index 2 | Outdoor Temp index is dynamically fetched
         String colC = row[2]?.toString().trim() ?? "";
-        String colK = row[10]?.toString().trim() ?? "";
-
+        String outdoorTempVal = (outdoorTempIdx != -1 && outdoorTempIdx < row.length)
+            ? row[outdoorTempIdx]?.toString().trim() ?? ""
+            : "";
         // A REBOOT ROW: Column C is blank, but Column K HAS data
-        bool isRebootRow = colC.isEmpty && colK.isNotEmpty;
+        bool isRebootRow = colC.isEmpty && outdoorTempVal.isNotEmpty;
 
         // AN ONLINE ROW: Column C has actual system data
         bool isOnline = colC.isNotEmpty;
@@ -357,12 +386,31 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
         for (int j = 0; j < headerRow.length; j++) {
           String headerText = headerRow[j].toString().toLowerCase().trim();
 
-          if (headerText.contains("current temp") ) {
+          if (headerText.contains("current temp")) {
             currentTempIdx = j;
           }
           if (headerText.contains("wind speed (km/h)")) {
             columnsToSkip.add(j);
           }
+
+          if (_removeNewColumns) {
+            if (headerText.contains("capacity") ||
+                headerText.contains("silent mode") ||
+                headerText.contains("consumption")) {
+              columnsToSkip.add(j);
+            }
+          }
+
+          if (_removeAirQuality) {
+            if (headerText.contains("thermostat airqualityaccuracy") ||
+                headerText.contains("thermostat airquality") ||
+                headerText.contains("thermostat vocppm") ||
+                headerText.contains("thermostat co2ppm") ||
+                headerText.contains("thermostat airpressure")) {
+              columnsToSkip.add(j);
+            }
+          }
+
           if (headerRow[j].toString().trim() == "Fan (sec)") {
             fanSecIndex = j;
           }
@@ -415,23 +463,18 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
             if (val != null) totalFanSeconds += val;
           }
 
-
-
           double rowHeat1 = 0.0, rowHeat2 = 0.0, rowAux1 = 0.0, rowAux2 = 0.0;
           double rowCool1 = 0.0, rowCool2 = 0.0;
 
           if (cool1Idx != -1 && cool1Idx < csvRows[i].length) {
-            rowCool1 =
-                double.tryParse(csvRows[i][cool1Idx].toString()) ?? 0.0;
+            rowCool1 = double.tryParse(csvRows[i][cool1Idx].toString()) ?? 0.0;
             totalCool1Seconds += rowCool1;
           }
 
           if (cool2Idx != -1 && cool2Idx < csvRows[i].length) {
-            rowCool2 =
-                double.tryParse(csvRows[i][cool2Idx].toString()) ?? 0.0;
+            rowCool2 = double.tryParse(csvRows[i][cool2Idx].toString()) ?? 0.0;
             totalCool2Seconds += rowCool2;
           }
-
 
           if (heat1Idx != -1 && heat1Idx < csvRows[i].length) {
             rowHeat1 = double.tryParse(csvRows[i][heat1Idx].toString()) ?? 0.0;
@@ -490,8 +533,6 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
             activeSeconds = rowCool1;
           }
 
-
-
           // Close blocks if the state changed or thermostat went offline
           if (isOffline || currentState != 1) {
             if (inS1) {
@@ -516,10 +557,18 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
           }
 
           if (isOffline || currentState != 4) {
-            if (inC1) { totalC1Delta += (c1Start - c1End); totalC1Sec += currentC1Sec; inC1 = false; }
+            if (inC1) {
+              totalC1Delta += (c1Start - c1End);
+              totalC1Sec += currentC1Sec;
+              inC1 = false;
+            }
           }
           if (isOffline || currentState != 5) {
-            if (inC2) { totalC2Delta += (c2Start - c2End); totalC2Sec += currentC2Sec; inC2 = false; }
+            if (inC2) {
+              totalC2Delta += (c2Start - c2End);
+              totalC2Sec += currentC2Sec;
+              inC2 = false;
+            }
           }
 
           // Open or update the current active block
@@ -548,14 +597,22 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
               }
               auxEnd = currentTemp;
               currentAuxSec += activeSeconds;
-            }
-
-           else if (currentState == 4) {
-              if (!inC1) { inC1 = true; c1Start = currentTemp; currentC1Sec = 0; }
-              c1End = currentTemp; currentC1Sec += activeSeconds;
+            } else if (currentState == 4) {
+              if (!inC1) {
+                inC1 = true;
+                c1Start = currentTemp;
+                currentC1Sec = 0;
+              }
+              c1End = currentTemp;
+              currentC1Sec += activeSeconds;
             } else if (currentState == 5) {
-              if (!inC2) { inC2 = true; c2Start = currentTemp; currentC2Sec = 0; }
-              c2End = currentTemp; currentC2Sec += activeSeconds;
+              if (!inC2) {
+                inC2 = true;
+                c2Start = currentTemp;
+                currentC2Sec = 0;
+              }
+              c2End = currentTemp;
+              currentC2Sec += activeSeconds;
             }
           }
 
@@ -590,8 +647,14 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
           totalAuxDelta += (auxEnd - auxStart);
           totalAuxSec += currentAuxSec;
         }
-        if (inC1) { totalC1Delta += (c1Start - c1End); totalC1Sec += currentC1Sec; }
-        if (inC2) { totalC2Delta += (c2Start - c2End); totalC2Sec += currentC2Sec; }
+        if (inC1) {
+          totalC1Delta += (c1Start - c1End);
+          totalC1Sec += currentC1Sec;
+        }
+        if (inC2) {
+          totalC2Delta += (c2Start - c2End);
+          totalC2Sec += currentC2Sec;
+        }
 
         // Don't forget to set your state right here before the block closes!
         setState(() {
@@ -615,9 +678,10 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
           if (totalAuxSec > 0)
             _auxHeatingSpeed = totalAuxDelta / (totalAuxSec / 3600);
 
-          if (totalC1Sec > 0) _stage1CoolingSpeed = totalC1Delta / (totalC1Sec / 3600);
-          if (totalC2Sec > 0) _stage2CoolingSpeed = totalC2Delta / (totalC2Sec / 3600);
-
+          if (totalC1Sec > 0)
+            _stage1CoolingSpeed = totalC1Delta / (totalC1Sec / 3600);
+          if (totalC2Sec > 0)
+            _stage2CoolingSpeed = totalC2Delta / (totalC2Sec / 3600);
         });
       } // <-- The entire csvRows.length >= 6 block finally closes here!
 
@@ -693,6 +757,9 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                 } else if (currentHeader == "Cool Stage 1 (sec)" &&
                     numericValue > 0) {
                   cellRange.cellStyle.backColor = '#cadff2';
+                } else if (currentHeader == "Cool Stage 2 (sec)" &&
+                    numericValue > 0) {
+                  cellRange.cellStyle.backColor = '#cadff2';
                 }
               } else {
                 cellRange.setText(cellText);
@@ -734,6 +801,8 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                   } else if (cellText == "compressorHeatOff") {
                     cellRange.cellStyle.backColor = '#ffe8eb';
                   } else if (cellText == "compressorCoolStage1On") {
+                    cellRange.cellStyle.backColor = '#cadff2';
+                  } else if (cellText == "compressorCoolStage2On") {
                     cellRange.cellStyle.backColor = '#cadff2';
                   } else if (cellText == "compressorCoolOff") {
                     cellRange.cellStyle.backColor = '#c0cfea';
@@ -929,69 +998,158 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                     //   ],
                     // ),
                     // const SizedBox(height: 24),
-                    DropTarget(
-                      onDragDone: (details) async {
-                        if (details.files.isNotEmpty) {
-                          final file = details.files.first;
-                          analytics.logEvent(name: 'file_dropped');
-                          final bytes = await file.readAsBytes();
-                          await _processFile(bytes, file.name);
-                        }
-                      },
-                      onDragEntered: (details) =>
-                          setState(() => _isDragging = true),
-                      onDragExited: (details) =>
-                          setState(() => _isDragging = false),
-                      child: MouseRegion(
-                        cursor: SystemMouseCursors.click,
-                        child: GestureDetector(
-                          onTap: _pickFile,
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 200),
-                            height: 200,
-                            width: 420,
-                            decoration: BoxDecoration(
-                              color: _isDragging
-                                  ? Colors.blue.withOpacity(0.05)
-                                  : Colors.white,
-                              borderRadius: BorderRadius.circular(24),
-                              border: Border.all(
-                                color: _isDragging
-                                    ? Colors.blueAccent
-                                    : Colors.blueGrey.shade200,
-                                width: 2,
-                              ),
-                            ),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                if (_isProcessing)
-                                  const CircularProgressIndicator()
-                                else
-                                  Icon(
-                                    Icons.upload_file_rounded,
-                                    size: 80,
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        DropTarget(
+                          onDragDone: (details) async {
+                            if (details.files.isNotEmpty) {
+                              final file = details.files.first;
+                              analytics.logEvent(name: 'file_dropped');
+                              final bytes = await file.readAsBytes();
+                              await _processFile(bytes, file.name);
+                            }
+                          },
+                          onDragEntered: (details) =>
+                              setState(() => _isDragging = true),
+                          onDragExited: (details) =>
+                              setState(() => _isDragging = false),
+                          child: MouseRegion(
+                            cursor: SystemMouseCursors.click,
+                            child: GestureDetector(
+                              onTap: _pickFile,
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
+                                height: 200,
+                                width: 420,
+                                decoration: BoxDecoration(
+                                  color: _isDragging
+                                      ? Colors.blue.withOpacity(0.05)
+                                      : Colors.white,
+                                  borderRadius: BorderRadius.circular(24),
+                                  border: Border.all(
                                     color: _isDragging
                                         ? Colors.blueAccent
-                                        : Colors.blueGrey[200],
-                                  ),
-                                const SizedBox(height: 20),
-                                Text(
-                                  _statusMessage,
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
+                                        : Colors.blueGrey.shade200,
+                                    width: 2,
                                   ),
                                 ),
-                              ],
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    if (_isProcessing)
+                                      const CircularProgressIndicator()
+                                    else
+                                      Icon(
+                                        Icons.upload_file_rounded,
+                                        size: 80,
+                                        color: _isDragging
+                                            ? Colors.blueAccent
+                                            : Colors.blueGrey[200],
+                                      ),
+                                    const SizedBox(height: 20),
+                                    Text(
+                                      _statusMessage,
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
                           ),
                         ),
-                      ),
+
+                        const SizedBox(width: 24),
+
+                        // --- UPDATED TOGGLES BOX ---
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: Colors.blueGrey.shade200,
+                              width: 1.5,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              // 1. Remove New Column Toggle
+                              Tooltip(
+                                message:
+                                    "Removes new columns from the report, such as Silent mode.",
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      "Remove\nNew Columns",
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.blueGrey.shade800,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Switch(
+                                      value: _removeNewColumns,
+                                      activeColor: Colors.blueAccent,
+                                      onChanged: (bool value) {
+                                        setState(() {
+                                          _removeNewColumns = value;
+                                        });
+                                        _savePreference('removeNewColumns', value);
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ),
+
+                              const SizedBox(width: 24),
+
+                              // 2. Remove Air Quality Info Toggle
+                              Tooltip(
+                                message: "Removes air quality information.",
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      "Remove\nAir Quality Info",
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.blueGrey.shade800,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Switch(
+                                      value: _removeAirQuality,
+                                      activeColor: Colors.blueAccent,
+                                      onChanged: (bool value) {
+                                        setState(() {
+                                          _removeAirQuality = value;
+                                        });
+                                        _savePreference('removeAirQuality', value);
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        // ----------------------------
+                      ],
                     ),
                     const SizedBox(height: 24),
-
                     // ==========================================
                     // 1. THERMOSTAT REPORT SUMMARY CARD
                     // ==========================================
@@ -1355,8 +1513,6 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                     ),
                                   ),
 
-
-
                                 Divider(
                                   height: 3,
                                   // Vertical layout space allocating 16px above and 16px below line
@@ -1365,8 +1521,6 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                   color: Colors
                                       .black12, // Standard subtle layout line matching app themes
                                 ),
-
-
 
                                 Center(
                                   child: Padding(
@@ -1505,18 +1659,20 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                     ),
                                   ),
 
-
                                 // Add this after your heating speed widgets
                                 if (_stage1CoolingSpeed != null)
                                   Align(
                                     alignment: Alignment.topLeft,
                                     child: Container(
                                       margin: const EdgeInsets.only(bottom: 8),
-                                      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 4, horizontal: 8),
                                       decoration: BoxDecoration(
-                                        color: const Color(0xFFCADFF2), // Light Blue
+                                        color: const Color(0xFFCADFF2),
+                                        // Light Blue
                                         borderRadius: BorderRadius.circular(6),
-                                        border: Border.all(color: Colors.black12),
+                                        border:
+                                            Border.all(color: Colors.black12),
                                       ),
                                       child: TipText(
                                         "Cool Stage 1: ${_stage1CoolingSpeed!.toStringAsFixed(2)} °/hr",
@@ -1530,11 +1686,14 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                     alignment: Alignment.topLeft,
                                     child: Container(
                                       margin: const EdgeInsets.only(bottom: 8),
-                                      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 4, horizontal: 8),
                                       decoration: BoxDecoration(
-                                        color: const Color(0xFF99CCFF), // Darker Blue
+                                        color: const Color(0xFF99CCFF),
+                                        // Darker Blue
                                         borderRadius: BorderRadius.circular(6),
-                                        border: Border.all(color: Colors.black12),
+                                        border:
+                                            Border.all(color: Colors.black12),
                                       ),
                                       child: TipText(
                                         "Cool Stage 2: ${_stage2CoolingSpeed!.toStringAsFixed(2)} °/hr",
@@ -1542,10 +1701,6 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                       ),
                                     ),
                                   ),
-
-
-
-
                               ],
                             ),
 

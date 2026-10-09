@@ -81,16 +81,16 @@ class ConsistentAppBar extends StatelessWidget implements PreferredSizeWidget {
           }
         }),
 
-        _navButton(context, "Controller", "controller", () {
-          Navigator.push(
-            context,
-            PageRouteBuilder(
-              pageBuilder: (context, anim1, anim2) => const ThermostatControllerPage(),
-              transitionDuration: Duration.zero,
-              reverseTransitionDuration: Duration.zero,
-            ),
-          );
-        }),
+        // _navButton(context, "Controller", "controller", () {
+        //   Navigator.push(
+        //     context,
+        //     PageRouteBuilder(
+        //       pageBuilder: (context, anim1, anim2) => const ThermostatControllerPage(),
+        //       transitionDuration: Duration.zero,
+        //       reverseTransitionDuration: Duration.zero,
+        //     ),
+        //   );
+        // }),
 
         _navButton(context, "About", "Info", () {
           Navigator.push(

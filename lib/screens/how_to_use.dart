@@ -24,16 +24,16 @@ class HowToUsePage extends StatelessWidget {
                   title: "User Tips & How to Use",
                   children: [
                     TipText(
-                      "Upload your .csv Temperature Report by dragging it into the box above or clicking the box to browse the .csv file.",
+                      "Upload your ecobee temperature report .csv file by dragging it into the box above or clicking the box to browse the .csv file.",
                     ),
                     TipText(
-                      "To locate your .csv file more easily, sort your folder by 'Date Modified' to see your most recent downloads first.",
+                      "To locate your .csv file more easily on your computer, sort the folder where you normally save your.csv files by 'Date Modified' and 'Descending' to see your most recent downloads first.",
                     ),
                     TipText(
-                      "Please note the web app saves the report as a .xlsx file instead of a .csv file.\nTo have future .xlsx reports open automatically after processing, right-click the .xlsx file in Chrome's 'Recent Download History' and select 'Always open files of this type'.\nYou can also disable this setting for .csv files to prevent the unformatted data from opening automatically.",
+                      "Please note the web app saves the report as a .xlsx file instead of a .csv file.\nTo have future .xlsx reports open automatically after processing, right-click the .xlsx file in your Google Chrome's 'Recent Download History' and select 'Always open files of this type'.\nYou can also disable this setting for .csv files to prevent the unformatted data from opening automatically.",
                     ),
                     TipText(
-                      "For added convenience, instead of saving this web app as a bookmark in your browser, you can use Chrome to \"Install page as app\" so it can be placed directly on your computer’s taskbar."),
+                      "For added convenience, instead of saving this web app as a bookmark in your browser, you can use your Google Chrome to \"Install page as app\" so it can be placed directly on your computer’s taskbar."),
                     TipText(
                       "Please reach out to Jonathan Lam to report any issues or to provide feedback.",
                     ),
@@ -41,41 +41,41 @@ class HowToUsePage extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 5),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 900),
-                child: SectionCard(
-                  title: "Support this Project",
-                  children: [
-                    const Text(
-                      "If you find this tool helpful for your diagnostics, please consider supporting its development. Maintaining this site takes time and comes with ongoing costs. Your support is greatly appreciated.",
-                      style: TextStyle(fontSize: 14, color: Colors.black87),
-                    ),
-                    const SizedBox(height: 16),
-                    Center(
-                      child: ElevatedButton.icon(
-                        onPressed: () async {
-                          final url = Uri.parse("https://www.buymeacoffee.com/jonathanlam12345");
-                          if (await canLaunchUrl(url)) {
-                            await launchUrl(url);
-                          }
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFFFDD00), // BMC Yellow
-                          foregroundColor: Colors.black,
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          elevation: 2,
-                        ),
-                        icon: const Icon(Icons.coffee, size: 20),
-                        label: const Text(
-                          "Buy me a coffee",
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              // ConstrainedBox(
+              //   constraints: const BoxConstraints(maxWidth: 900),
+              //   child: SectionCard(
+              //     title: "Support this Project",
+              //     children: [
+              //       const Text(
+              //         "If you find this tool helpful for your diagnostics, please consider supporting its development. Maintaining this site takes time and comes with ongoing costs. Your support is greatly appreciated.",
+              //         style: TextStyle(fontSize: 14, color: Colors.black87),
+              //       ),
+              //       const SizedBox(height: 16),
+              //       Center(
+              //         child: ElevatedButton.icon(
+              //           onPressed: () async {
+              //             final url = Uri.parse("https://www.buymeacoffee.com/jonathanlam12345");
+              //             if (await canLaunchUrl(url)) {
+              //               await launchUrl(url);
+              //             }
+              //           },
+              //           style: ElevatedButton.styleFrom(
+              //             backgroundColor: const Color(0xFFFFDD00), // BMC Yellow
+              //             foregroundColor: Colors.black,
+              //             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+              //             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              //             elevation: 2,
+              //           ),
+              //           icon: const Icon(Icons.coffee, size: 20),
+              //           label: const Text(
+              //             "Buy me a coffee",
+              //             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+              //           ),
+              //         ),
+              //       ),
+              //     ],
+              //   ),
+              // ),
               //
             ],
           ),
