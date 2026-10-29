@@ -3,20 +3,18 @@ import 'dart:html' as html;
 
 import 'package:csv/csv.dart';
 import 'package:desktop_drop/desktop_drop.dart';
-import 'package:ecobee_tstat_csv/widgets/chatbot_widget.dart';
 import 'package:ecobee_tstat_csv/widgets/app_bar.dart';
-import 'package:ecobee_tstat_csv/widgets/section_card.dart';
+import 'package:ecobee_tstat_csv/widgets/expandable_section_card.dart';
 import 'package:ecobee_tstat_csv/widgets/tip_text.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:package_info_plus/package_info_plus.dart';
-import 'package:syncfusion_flutter_xlsio/xlsio.dart' as xlsio;
-import 'package:ecobee_tstat_csv/widgets/expandable_section_card.dart';
 import 'package:http/http.dart' as http;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:syncfusion_flutter_xlsio/xlsio.dart' as xlsio;
 
 // 411955672402--2026-01-01--2026-01-30-reports-data
 
@@ -92,9 +90,11 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
   double? _stage2CoolingSpeed;
 
   String? _serialNumber;
+  String? _modelName;
   String? _thermostatName;
   String? _startDate;
   String? _endDate;
+  bool? _isCelsius;
 
   int? _rebootCount;
   int? _rebootsOnHeat;
@@ -126,6 +126,30 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
     });
   }
 
+  String? _getModelName(String? serialNumber) {
+    if (serialNumber == null || serialNumber.length < 2) return null;
+    final prefix = serialNumber.substring(0, 2);
+    switch (prefix) {
+      case '53':
+        return 'Smart Thermostat Premium';
+      case '42':
+        return 'Smart Thermostat Enhanced';
+      case '52':
+        return 'SmartThermostat with voice control';
+      case '44':
+        return 'Smart Thermostat Lite';
+      case '51':
+        return 'ecobee4';
+      case '41':
+        return 'ecobee3 lite';
+      case '31':
+        return 'ecobee3';
+      default:
+        return 'Unknown Model';
+    }
+  }
+
+
 // --- ADD THESE METHODS ---
   Future<void> _loadPreferences() async {
     final prefs = await SharedPreferences.getInstance();
@@ -139,9 +163,8 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(key, value);
   }
+
   // -------------------------
-
-
 
   void _pickFile() {
     final html.FileUploadInputElement uploadInput =
@@ -213,8 +236,8 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       int? fanSecIndex;
       double totalFanSeconds = 0;
 
-      // 1. Reset variables at the start of processing
-      _totalCool1Hours = null;
+      _modelName = null;
+     _totalCool1Hours = null;
       _totalCool2Hours = null;
       _totalHeat1Hours = null;
       _totalHeat2Hours = null;
@@ -255,7 +278,14 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
 
 // Dynamically find the Outdoor Temp column index (handles slight naming variations)
       int outdoorTempIdx = earlyHeaderRow.indexWhere(
-              (h) => h.toString().toLowerCase().contains("outdoor temp"));
+          (h) => h.toString().toLowerCase().contains("outdoor temp"));
+
+      bool isCelsius = false;
+      if (outdoorTempIdx != -1 && outdoorTempIdx < earlyHeaderRow.length) {
+        String headerText =
+            earlyHeaderRow[outdoorTempIdx].toString().toLowerCase();
+        isCelsius = headerText.contains("(c)");
+      }
 
       int rCool1Idx = earlyHeaderRow.indexOf("Cool Stage 1 (sec)");
       int rCool2Idx = earlyHeaderRow.indexOf("Cool Stage 2 (sec)");
@@ -273,9 +303,10 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
 
         // Column C is index 2 | Outdoor Temp index is dynamically fetched
         String colC = row[2]?.toString().trim() ?? "";
-        String outdoorTempVal = (outdoorTempIdx != -1 && outdoorTempIdx < row.length)
-            ? row[outdoorTempIdx]?.toString().trim() ?? ""
-            : "";
+        String outdoorTempVal =
+            (outdoorTempIdx != -1 && outdoorTempIdx < row.length)
+                ? row[outdoorTempIdx]?.toString().trim() ?? ""
+                : "";
         // A REBOOT ROW: Column C is blank, but Column K HAS data
         bool isRebootRow = colC.isEmpty && outdoorTempVal.isNotEmpty;
 
@@ -348,6 +379,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
         _rebootsOnCool = rebootsOnCoolCounter;
         _rebootsOnNone = rebootsOnNoneCounter;
         _rebootDetails = currentRebootDetails;
+        _isCelsius = isCelsius;
       });
 
       //csvRows[0].length >= 4
@@ -358,6 +390,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
           csvRows[2].length >= 4 &&
           csvRows[3].length >= 4) {
         _serialNumber = csvRows[0][3].toString();
+        _modelName = _getModelName(_serialNumber);
         _thermostatName = csvRows[1][3].toString();
         _startDate = csvRows[2][3].toString();
         _endDate = csvRows[3][3].toString();
@@ -1105,9 +1138,22 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                         setState(() {
                                           _removeNewColumns = value;
                                         });
-                                        _savePreference('removeNewColumns', value);
+                                        _savePreference(
+                                            'removeNewColumns', value);
                                       },
                                     ),
+                                    const SizedBox(height: 10),
+                                    Switch(
+                                      value: _removeNewColumns,
+                                      activeColor: Colors.blueAccent,
+                                      onChanged: (bool value) {
+                                        setState(() {
+                                          _removeNewColumns = value;
+                                        });
+                                        _savePreference(
+                                            'removeNewColumns', value);
+                                      },
+                                    )
                                   ],
                                 ),
                               ),
@@ -1137,9 +1183,18 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                         setState(() {
                                           _removeAirQuality = value;
                                         });
-                                        _savePreference('removeAirQuality', value);
+                                        _savePreference(
+                                            'removeAirQuality', value);
                                       },
                                     ),
+
+
+
+
+
+
+
+
                                   ],
                                 ),
                               ),
@@ -1187,6 +1242,31 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                   ),
                                 ),
                               ),
+
+
+                              if (_modelName != null)
+                                Align(
+                                  alignment: Alignment.topLeft,
+                                  child: Container(
+                                    width: double.infinity,
+                                    margin: const EdgeInsets.only(bottom: 8),
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 4, horizontal: 8),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFFFFF00),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: Colors.black12),
+                                    ),
+                                    child: TipText(
+                                      "Thermostat Model: $_modelName",
+                                      textAlign: TextAlign.left,
+                                    ),
+                                  ),
+                                ),
+
+
+
+
                               Align(
                                 alignment: Alignment.topLeft,
                                 child: Container(
@@ -1356,10 +1436,10 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                 Divider(
                                   height: 3,
                                   // Vertical layout space allocating 16px above and 16px below line
-                                  thickness: 1,
+                                  thickness: 2,
                                   // Definite thin border profile
                                   color: Colors
-                                      .black12, // Standard subtle layout line matching app themes
+                                      .black26, // Standard subtle layout line matching app themes
                                 ),
 
                                 Center(
@@ -1512,14 +1592,13 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                           textAlign: TextAlign.left),
                                     ),
                                   ),
-
                                 Divider(
                                   height: 3,
                                   // Vertical layout space allocating 16px above and 16px below line
-                                  thickness: 1,
+                                  thickness: 2,
                                   // Definite thin border profile
                                   color: Colors
-                                      .black12, // Standard subtle layout line matching app themes
+                                      .black26, // Standard subtle layout line matching app themes
                                 ),
 
                                 Center(
@@ -1554,7 +1633,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                             Border.all(color: Colors.black12),
                                       ),
                                       child: TipText(
-                                        "Heat: ${_avgHeatSetTemp!.toStringAsFixed(1)}°",
+                                        "Heat: ${_avgHeatSetTemp!.toStringAsFixed(1)}${(_isCelsius == true) ? '°C' : '°F'}",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
@@ -1575,18 +1654,26 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                             Border.all(color: Colors.black12),
                                       ),
                                       child: TipText(
-                                        "Cool: ${_avgCoolSetTemp!.toStringAsFixed(1)}°",
+                                        "Cool: ${_avgCoolSetTemp!.toStringAsFixed(1)}${(_isCelsius == true) ? '°C' : '°F'}",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
                                   ),
 
+                                Divider(
+                                  height: 3,
+                                  // Vertical layout space allocating 16px above and 16px below line
+                                  thickness: 2,
+                                  // Definite thin border profile
+                                  color: Colors
+                                      .black26, // Standard subtle layout line matching app themes
+                                ),
                                 Center(
                                   child: Padding(
                                     padding: const EdgeInsets.symmetric(
                                         vertical: 12.0),
                                     child: Text(
-                                      "Runtime Efficiency (°/hr)",
+                                      "Runtime Efficiency (${(_isCelsius == true) ? '°C' : '°F'}/hr)",
                                       style: TextStyle(
                                         fontSize: 18,
                                         fontWeight: FontWeight.w600,
@@ -1611,7 +1698,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                             Border.all(color: Colors.black12),
                                       ),
                                       child: TipText(
-                                        "Heating Stage 1: ${_stage1HeatingSpeed!.toStringAsFixed(2)} °/hr",
+                                        "Heating Stage 1: ${_stage1HeatingSpeed!.toStringAsFixed(2)}${(_isCelsius == true) ? '°C' : '°F'}/hr",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
@@ -1632,7 +1719,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                             Border.all(color: Colors.black12),
                                       ),
                                       child: TipText(
-                                        "Heating Stage 2: ${_stage2HeatingSpeed!.toStringAsFixed(2)} °/hr",
+                                        "Heating Stage 2: ${_stage2HeatingSpeed!.toStringAsFixed(2)}${(_isCelsius == true) ? '°C' : '°F'}/hr",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
@@ -1653,7 +1740,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                             Border.all(color: Colors.black12),
                                       ),
                                       child: TipText(
-                                        "Heating Aux Heat: ${_auxHeatingSpeed!.toStringAsFixed(2)} °/hr",
+                                        "Heating Aux Heat: ${_auxHeatingSpeed!.toStringAsFixed(2)}${(_isCelsius == true) ? '°C' : '°F'}/hr",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
@@ -1675,7 +1762,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                             Border.all(color: Colors.black12),
                                       ),
                                       child: TipText(
-                                        "Cool Stage 1: ${_stage1CoolingSpeed!.toStringAsFixed(2)} °/hr",
+                                        "Cool Stage 1: ${_stage1CoolingSpeed!.toStringAsFixed(2)}${(_isCelsius == true) ? '°C' : '°F'}/hr",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
@@ -1696,7 +1783,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                             Border.all(color: Colors.black12),
                                       ),
                                       child: TipText(
-                                        "Cool Stage 2: ${_stage2CoolingSpeed!.toStringAsFixed(2)} °/hr",
+                                        "Cool Stage 2: ${_stage2CoolingSpeed!.toStringAsFixed(2)}${(_isCelsius == true) ? '°C' : '°F'}/hr",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
