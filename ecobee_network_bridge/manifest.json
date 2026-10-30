@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Ecobee Network Bridge (Local Test)",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Local test version of the network bridge.",
   "background": {
     "service_worker": "background.js"

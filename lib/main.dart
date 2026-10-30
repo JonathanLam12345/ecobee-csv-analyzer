@@ -1,5 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:html' as html;
+import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
+import 'package:web/web.dart' as web;
 
 import 'package:csv/csv.dart';
 import 'package:desktop_drop/desktop_drop.dart';
@@ -50,10 +54,7 @@ void main() async {
 
 class ExcelProcessorApp extends StatefulWidget {
   final String version; // Add this line
-  const ExcelProcessorApp({
-    super.key,
-    required this.version,
-  });
+  const ExcelProcessorApp({super.key, required this.version});
 
   @override
   State<ExcelProcessorApp> createState() => _ExcelProcessorAppState();
@@ -67,6 +68,8 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
   bool _isChatOpen = false;
   bool _removeNewColumns = false;
   bool _removeAirQuality = false;
+  bool _smartAnalyzer = false;
+  String? _extensionMessage;
   String _statusMessage = "Drag & Drop CSV Here \nor\n Click to Upload";
 
   double? _totalFanHours;
@@ -110,6 +113,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
     super.initState();
     _loadPreferences();
 
+
     _versionRef = FirebaseDatabase.instanceFor(
       app: Firebase.app(),
       databaseURL: 'https://ecobee-csv-analyzer-default-rtdb.firebaseio.com/',
@@ -124,6 +128,161 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
         });
       }
     });
+  }
+
+
+
+
+  Future<void> _checkExtensionStatus() async {
+    if (!_smartAnalyzer) {
+      if (!mounted) return;
+      setState(() {
+        _extensionMessage = null;
+      });
+      return;
+    }
+
+    const String extensionId = "acmaldmbeckghjmebolfjefpnkcciadc";
+    const String requiredVersion = "1.0.1";
+
+    print("--- [DEBUG] Checking extension status ---");
+    print("[DEBUG] Target Extension ID: $extensionId");
+
+    try {
+      final chrome = web.window.getProperty('chrome'.toJS);
+      if (chrome.isUndefinedOrNull) {
+        print("[DEBUG] Error: chrome object is undefined or null.");
+        if (!mounted) return;
+        setState(() {
+          _extensionMessage =
+          "1) Smart Analyzer Chrome extension is not downloaded / installed.";
+        });
+        return;
+      }
+
+      final runtime = (chrome as JSObject).getProperty('runtime'.toJS);
+      if (runtime.isUndefinedOrNull) {
+        print("[DEBUG] Error: chrome.runtime is undefined or null.");
+        if (!mounted) return;
+        setState(() {
+          _extensionMessage = "2) extension runtime not available.";
+        });
+        return;
+      }
+
+      final completer = Completer<String?>();
+
+      final callback = ((JSAny? response) {
+        print("[DEBUG] Raw response received from extension: $response");
+        if (response != null && !response.isUndefinedOrNull) {
+          final respObj = response as JSObject;
+          final hasVer = respObj
+              .hasProperty('version'.toJS)
+              .toDart;
+          print("[DEBUG] Response has 'version' property? $hasVer");
+          final ver = hasVer
+              ? respObj.getProperty('version'.toJS).dartify()?.toString()
+              : null;
+          print("[DEBUG] Extracted installed version: $ver");
+          completer.complete(ver);
+        } else {
+          print("[DEBUG] Response object was null or undefined.");
+          completer.complete(null);
+        }
+      }).toJS;
+
+      print("[DEBUG] Sending message to extension via runtime.sendMessage...");
+      (runtime as JSObject).callMethod(
+        'sendMessage'.toJS,
+        extensionId.toJS,
+        {'action': 'getVersion'}.jsify()!,
+        callback,
+      );
+
+      String? installedVersion = await completer.future.timeout(
+        const Duration(seconds: 2),
+        onTimeout: () {
+          print("[DEBUG] Timeout! Extension did not reply within 2 seconds.");
+          return null;
+        },
+      );
+
+      print("[DEBUG] Final resolved installedVersion: $installedVersion");
+
+      if (!mounted) return;
+
+      if (installedVersion == null) {
+        setState(() {
+          _extensionMessage =
+          "3) Smart Analyzer is not installed.";
+        });
+      } else if (!_isUpToDate(requiredVersion, installedVersion) &&
+          installedVersion != requiredVersion) {
+        setState(() {
+          _extensionMessage =
+          "4) Smart Analyzer Chrome extension is outdated (v$installedVersion). Please update to v$requiredVersion.";
+        });
+      } else {
+        print("[DEBUG] Success! Extension is installed and up-to-date.");
+        // Force a unique update or clear state so Flutter forces a repaint
+        setState(() {
+          _extensionMessage = null;
+        });
+      }
+    } catch (e) {
+      print("[DEBUG] Exception caught during extension check: $e");
+      if (!mounted) return;
+      setState(() {
+        _extensionMessage =
+        "5) Smart Analyzer Chrome extension is not downloaded.";
+      });
+    }
+  }
+
+
+  Future<String?> _fetchFullName(String serialNumber) async {
+    // HARD GUARD: Never attempt to scrape if Smart Analyzer is turned off
+    if (!_smartAnalyzer) return null;
+
+    try {
+      final chrome = web.window.getProperty('chrome'.toJS);
+      if (chrome.isUndefinedOrNull) return null;
+
+      final runtime = (chrome as JSObject).getProperty('runtime'.toJS);
+      if (runtime.isUndefinedOrNull) return null;
+
+      const String extensionId = "acmaldmbeckghjmebolfjefpnkcciadc";
+      final completer = Completer<String?>();
+
+      final callback = ((JSAny? response) {
+        try {
+          final dynamic dartResp = response?.dartify();
+          if (dartResp is Map) {
+            final String? fullName = dartResp['fullName']?.toString();
+            if (!completer.isCompleted) completer.complete(fullName);
+            return;
+          }
+          if (!completer.isCompleted) completer.complete(null);
+        } catch (e) {
+          print("[DEBUG] Dartify/Parsing error: $e");
+          if (!completer.isCompleted) completer.complete(null);
+        }
+      }).toJS;
+
+      (runtime as JSObject).callMethod(
+        'sendMessage'.toJS,
+        extensionId.toJS,
+        {'action': 'fetchDeviceDetails', 'serialNumber': serialNumber}.jsify()!,
+        callback,
+      );
+
+      // --- REMOVED TIMEOUT: This will now wait asynchronously until the extension responds ---
+      return await completer.future;
+
+    } catch (e) {
+      print("[DEBUG] Exception in _fetchFullName: $e");
+      return null;
+    }
   }
 
   String? _getModelName(String? serialNumber) {
@@ -149,26 +308,47 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
     }
   }
 
-
-// --- ADD THESE METHODS ---
   Future<void> _loadPreferences() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       _removeNewColumns = prefs.getBool('removeNewColumns') ?? false;
       _removeAirQuality = prefs.getBool('removeAirQuality') ?? false;
+      _smartAnalyzer = prefs.getBool('smartAnalyzer') ?? false;
     });
+    if (_smartAnalyzer) {
+      _checkExtensionStatus();
+    }
   }
 
   Future<void> _savePreference(String key, bool value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(key, value);
-  }
 
+    // Sync toggle state with the Chrome Extension
+    if (key == 'smartAnalyzer') {
+      try {
+        final chrome = web.window.getProperty('chrome'.toJS);
+        if (!chrome.isUndefinedOrNull) {
+          final runtime = (chrome as JSObject).getProperty('runtime'.toJS);
+          if (!runtime.isUndefinedOrNull) {
+            const String extensionId = "acmaldmbeckghjmebolfjefpnkcciadc";
+            (runtime as JSObject).callMethod(
+              'sendMessage'.toJS,
+              extensionId.toJS,
+              {'action': 'updateToggle', 'enabled': value}.jsify()!,
+            );
+          }
+        }
+      } catch (e) {
+        print("[DEBUG] Failed to sync toggle with extension: $e");
+      }
+    }
+  }
   // -------------------------
 
   void _pickFile() {
     final html.FileUploadInputElement uploadInput =
-        html.FileUploadInputElement();
+    html.FileUploadInputElement();
     uploadInput.accept = '.csv';
     uploadInput.click();
 
@@ -180,7 +360,14 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
         final reader = html.FileReader();
         reader.readAsArrayBuffer(file);
         reader.onLoadEnd.listen((e) async {
-          final Uint8List bytes = reader.result as Uint8List;
+          // --- USE THIS SAFE BUFFER EXTRACTION ---
+          final dynamic result = reader.result;
+          Uint8List bytes;
+          if (result is Uint8List) {
+            bytes = result;
+          } else {
+            bytes = (result as dynamic).asUint8List();
+          }
           await _processFile(bytes, file.name);
         });
       }
@@ -237,7 +424,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       double totalFanSeconds = 0;
 
       _modelName = null;
-     _totalCool1Hours = null;
+      _totalCool1Hours = null;
       _totalCool2Hours = null;
       _totalHeat1Hours = null;
       _totalHeat2Hours = null;
@@ -268,22 +455,25 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       String rebootStartDate = "";
       String rebootStartTime = "";
 
-// Track the runtime state of the LAST valid row
+      // Track the runtime state of the LAST valid row
       bool lastStateWasHeating = false;
       bool lastStateWasCooling = false;
 
-// Find the runtime column indexes early so we can evaluate equipment state
-      List<dynamic> earlyHeaderRow =
-          csvRows.length >= 6 ? csvRows[5] : <dynamic>[];
+      // Find the runtime column indexes early so we can evaluate equipment state
+      List<dynamic> earlyHeaderRow = csvRows.length >= 6
+          ? csvRows[5]
+          : <dynamic>[];
 
-// Dynamically find the Outdoor Temp column index (handles slight naming variations)
+      // Dynamically find the Outdoor Temp column index (handles slight naming variations)
       int outdoorTempIdx = earlyHeaderRow.indexWhere(
-          (h) => h.toString().toLowerCase().contains("outdoor temp"));
+            (h) => h.toString().toLowerCase().contains("outdoor temp"),
+      );
 
       bool isCelsius = false;
       if (outdoorTempIdx != -1 && outdoorTempIdx < earlyHeaderRow.length) {
-        String headerText =
-            earlyHeaderRow[outdoorTempIdx].toString().toLowerCase();
+        String headerText = earlyHeaderRow[outdoorTempIdx]
+            .toString()
+            .toLowerCase();
         isCelsius = headerText.contains("(c)");
       }
 
@@ -304,9 +494,9 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
         // Column C is index 2 | Outdoor Temp index is dynamically fetched
         String colC = row[2]?.toString().trim() ?? "";
         String outdoorTempVal =
-            (outdoorTempIdx != -1 && outdoorTempIdx < row.length)
-                ? row[outdoorTempIdx]?.toString().trim() ?? ""
-                : "";
+        (outdoorTempIdx != -1 && outdoorTempIdx < row.length)
+            ? row[outdoorTempIdx]?.toString().trim() ?? ""
+            : "";
         // A REBOOT ROW: Column C is blank, but Column K HAS data
         bool isRebootRow = colC.isEmpty && outdoorTempVal.isNotEmpty;
 
@@ -343,7 +533,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
             currentRebootDetails.add({
               'date': rebootStartDate,
               'time': rebootStartTime,
-              'type': rebootType
+              'type': rebootType,
             });
           }
 
@@ -351,7 +541,12 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
           inRebootPeriod = false;
 
           // --- Check THIS row's runtimes to save for the NEXT potential reboot ---
-          double c1 = 0, c2 = 0, h1 = 0, h2 = 0, a1 = 0, a2 = 0;
+          double c1 = 0,
+              c2 = 0,
+              h1 = 0,
+              h2 = 0,
+              a1 = 0,
+              a2 = 0;
 
           if (rCool1Idx != -1 && rCool1Idx < row.length)
             c1 = double.tryParse(row[rCool1Idx].toString()) ?? 0;
@@ -382,6 +577,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
         _isCelsius = isCelsius;
       });
 
+      String? scrapedFullName;
       //csvRows[0].length >= 4
       // This counts the number of items (columns) inside that specific row.
       if (csvRows.length >= 4 &&
@@ -394,13 +590,53 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
         _thermostatName = csvRows[1][3].toString();
         _startDate = csvRows[2][3].toString();
         _endDate = csvRows[3][3].toString();
+
+        if (_smartAnalyzer && _serialNumber != null) {
+          setState(() {
+            _statusMessage = "Scraping Owner Name...";
+          });
+
+
+          try {
+            // Guarantee it never hangs for more than 8 seconds
+            scrapedFullName = await _fetchFullName(_serialNumber!).timeout(
+              const Duration(seconds: 8),
+              onTimeout: () {
+                print("[DEBUG] _fetchFullName timed out in Flutter.");
+                return null;
+              },
+            );
+          } catch (e) {
+            print("[DEBUG] Error during owner scraping: $e");
+            scrapedFullName = null;
+          }
+        }
       }
+// Write Owner Full Name into Row 5, Column D if successfully scraped
+      // Safely write Owner Full Name only if it's a valid, real name
+      if (scrapedFullName != null &&
+          scrapedFullName.isNotEmpty &&
+          scrapedFullName != "Not Found" &&
+          scrapedFullName != "<missing>") {
+        try {
+          sheet.getRangeByIndex(5, 3).setText("Owner's Name:");
+          sheet.getRangeByIndex(5, 4).setText(scrapedFullName);
+          sheet.getRangeByIndex(5, 4).cellStyle.bold = true;
+          sheet.getRangeByIndex(5, 4).cellStyle.backColor = '#FFFF00';
+        } catch (e) {
+          print("[DEBUG] Error writing owner name to sheet: $e");
+        }
+      }
+
+
+
+
 
       List<int> columnsToSkip = [];
 
       //csvRows.length >= 6
       //Counts the num of rows
-// Counts the num of rows
+      // Counts the num of rows
       if (csvRows.length >= 6) {
         List<dynamic> headerRow = csvRows[5];
 
@@ -470,34 +706,56 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
         List<List<dynamic>> dataRows = csvRows.sublist(6);
 
         // --- NEW SEPARATED TRACKING VARIABLES ---
-        double totalS1Delta = 0.0, totalS1Sec = 0.0;
-        double totalS2Delta = 0.0, totalS2Sec = 0.0;
-        double totalAuxDelta = 0.0, totalAuxSec = 0.0;
+        double totalS1Delta = 0.0,
+            totalS1Sec = 0.0;
+        double totalS2Delta = 0.0,
+            totalS2Sec = 0.0;
+        double totalAuxDelta = 0.0,
+            totalAuxSec = 0.0;
 
-        bool inS1 = false, inS2 = false, inAux = false;
-        double s1Start = 0.0, s2Start = 0.0, auxStart = 0.0;
-        double s1End = 0.0, s2End = 0.0, auxEnd = 0.0;
-        double currentS1Sec = 0.0, currentS2Sec = 0.0, currentAuxSec = 0.0;
+        bool inS1 = false,
+            inS2 = false,
+            inAux = false;
+        double s1Start = 0.0,
+            s2Start = 0.0,
+            auxStart = 0.0;
+        double s1End = 0.0,
+            s2End = 0.0,
+            auxEnd = 0.0;
+        double currentS1Sec = 0.0,
+            currentS2Sec = 0.0,
+            currentAuxSec = 0.0;
 
         // --- NEW COOLING TRACKING VARIABLES ---
-        double totalC1Delta = 0.0, totalC1Sec = 0.0;
-        double totalC2Delta = 0.0, totalC2Sec = 0.0;
+        double totalC1Delta = 0.0,
+            totalC1Sec = 0.0;
+        double totalC2Delta = 0.0,
+            totalC2Sec = 0.0;
 
-        bool inC1 = false, inC2 = false;
-        double c1Start = 0.0, c2Start = 0.0;
-        double c1End = 0.0, c2End = 0.0;
-        double currentC1Sec = 0.0, currentC2Sec = 0.0;
+        bool inC1 = false,
+            inC2 = false;
+        double c1Start = 0.0,
+            c2Start = 0.0;
+        double c1End = 0.0,
+            c2End = 0.0;
+        double currentC1Sec = 0.0,
+            currentC2Sec = 0.0;
 
         for (int i = 6; i < csvRows.length; i++) {
           // Fan
           if (fanSecIndex != null && fanSecIndex! < csvRows[i].length) {
-            final double? val =
-                double.tryParse(csvRows[i][fanSecIndex!].toString());
+            final double? val = double.tryParse(
+              csvRows[i][fanSecIndex!].toString(),
+            );
             if (val != null) totalFanSeconds += val;
           }
 
-          double rowHeat1 = 0.0, rowHeat2 = 0.0, rowAux1 = 0.0, rowAux2 = 0.0;
-          double rowCool1 = 0.0, rowCool2 = 0.0;
+          double rowHeat1 = 0.0,
+              rowHeat2 = 0.0,
+              rowAux1 = 0.0,
+              rowAux2 = 0.0;
+          double rowCool1 = 0.0,
+              rowCool2 = 0.0;
 
           if (cool1Idx != -1 && cool1Idx < csvRows[i].length) {
             rowCool1 = double.tryParse(csvRows[i][cool1Idx].toString()) ?? 0.0;
@@ -530,8 +788,9 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
           double currentTemp = 0.0;
           bool hasValidTemp = false;
           if (currentTempIdx != -1 && currentTempIdx < csvRows[i].length) {
-            final double? val =
-                double.tryParse(csvRows[i][currentTempIdx].toString());
+            final double? val = double.tryParse(
+              csvRows[i][currentTempIdx].toString(),
+            );
             if (val != null) {
               currentTemp = val;
               hasValidTemp = true;
@@ -546,7 +805,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
 
           // Determine the active equipment state for this row
           int currentState =
-              0; // 0 = off, 1 = S1, 2 = S2, 3 = Aux, 4 = Cool1, 5 = Cool2
+          0; // 0 = off, 1 = S1, 2 = S2, 3 = Aux, 4 = Cool1, 5 = Cool2
           double activeSeconds = 0.0;
 
           if (rowAux1 > 0 || rowAux2 > 0) {
@@ -651,8 +910,9 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
 
           /////////////////////////
           if (heatSetTempIdx != -1 && heatSetTempIdx < csvRows[i].length) {
-            final double? val =
-                double.tryParse(csvRows[i][heatSetTempIdx].toString());
+            final double? val = double.tryParse(
+              csvRows[i][heatSetTempIdx].toString(),
+            );
             if (val != null) {
               sumHeatSetTemp += val;
               countHeatSetTemp++;
@@ -660,8 +920,9 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
           }
 
           if (coolSetTempIdx != -1 && coolSetTempIdx < csvRows[i].length) {
-            final double? val =
-                double.tryParse(csvRows[i][coolSetTempIdx].toString());
+            final double? val = double.tryParse(
+              csvRows[i][coolSetTempIdx].toString(),
+            );
             if (val != null) {
               sumCoolSetTemp += val;
               countCoolSetTemp++;
@@ -884,8 +1145,25 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
           colRange.columnWidth = autoWidth / 2;
         }
       }
-      sheet.getRangeByIndex(1, 4).cellStyle.backColor = '#ffff00';
+      sheet
+          .getRangeByIndex(1, 4)
+          .cellStyle
+          .backColor = '#ffff00';
       if (csvRows.length >= 7) sheet.getRangeByIndex(7, 1).freezePanes();
+
+
+      // ---> MOVE THE OWNER NAME WRITING HERE SO IT NEVER GETS OVERWRITTEN:
+      if (scrapedFullName != null && scrapedFullName.isNotEmpty) {
+        try {
+          sheet.getRangeByIndex(5, 3).setText("Owner's Name:");
+          sheet.getRangeByIndex(5, 4).setText(scrapedFullName);
+          sheet.getRangeByIndex(5, 4).cellStyle.bold = true;
+          sheet.getRangeByIndex(5, 4).cellStyle.backColor = '#FFFF00';
+        } catch (e) {
+          print("[DEBUG] Error writing owner name to sheet: $e");
+        }
+      }
+
 
       final List<int> outBytes = workbook.saveAsStream();
       final blob = html.Blob([
@@ -926,10 +1204,14 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
 
   bool _isUpToDate(String local, String remote) {
     try {
-      List<int> localParts =
-          local.split('.').map((e) => int.tryParse(e) ?? 0).toList();
-      List<int> remoteParts =
-          remote.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+      List<int> localParts = local
+          .split('.')
+          .map((e) => int.tryParse(e) ?? 0)
+          .toList();
+      List<int> remoteParts = remote
+          .split('.')
+          .map((e) => int.tryParse(e) ?? 0)
+          .toList();
 
       int maxLength = localParts.length > remoteParts.length
           ? localParts.length
@@ -982,40 +1264,41 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                   children: [
                     MouseRegion(
                       // The cursor will now correctly show the pointer/hand
-                      cursor: (_latestVersion != null &&
-                              !_isUpToDate(widget.version, _latestVersion!))
+                      cursor:
+                      (_latestVersion != null &&
+                          !_isUpToDate(widget.version, _latestVersion!))
                           ? SystemMouseCursors.click
                           : SystemMouseCursors.basic,
                       child: GestureDetector(
-                          onTap: () {
-                            if (_latestVersion != null &&
-                                !_isUpToDate(widget.version, _latestVersion!)) {
-                              html.window.location.reload();
-                            }
-                          },
-                          child: Align(
-                            alignment: Alignment.centerRight,
-                            // This forces the widget to the right side
-                            child: Text(
-                              displayVersionText,
-                              style: TextStyle(
-                                color: versionColor,
-                                fontSize: 12,
-                                fontWeight: versionWeight,
-                                decoration: (_latestVersion != null &&
-                                        !_isUpToDate(
-                                          widget.version,
-                                          _latestVersion!,
-                                        ))
-                                    ? TextDecoration.underline
-                                    : TextDecoration.none,
-                              ),
+                        onTap: () {
+                          if (_latestVersion != null &&
+                              !_isUpToDate(widget.version, _latestVersion!)) {
+                            html.window.location.reload();
+                          }
+                        },
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          // This forces the widget to the right side
+                          child: Text(
+                            displayVersionText,
+                            style: TextStyle(
+                              color: versionColor,
+                              fontSize: 12,
+                              fontWeight: versionWeight,
+                              decoration:
+                              (_latestVersion != null &&
+                                  !_isUpToDate(
+                                    widget.version,
+                                    _latestVersion!,
+                                  ))
+                                  ? TextDecoration.underline
+                                  : TextDecoration.none,
                             ),
-                          )),
+                          ),
+                        ),
+                      ),
                     ),
-                    SizedBox(
-                      height: 30,
-                    ),
+                    SizedBox(height: 30),
 
                     //
                     // SectionCard(
@@ -1100,106 +1383,230 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                         const SizedBox(width: 24),
 
                         // --- UPDATED TOGGLES BOX ---
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: Colors.blueGrey.shade200,
-                              width: 1.5,
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              // 1. Remove New Column Toggle
-                              Tooltip(
-                                message:
-                                    "Removes new columns from the report, such as Silent mode.",
-                                child: Column(
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: Colors.blueGrey.shade200,
+                                  width: 1.5,
+                                ),
+                              ),
+                              child: IntrinsicHeight(
+                                child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Text(
-                                      "Remove\nNew Columns",
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.blueGrey.shade800,
+                                    // 1. Remove New Column Toggle
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 16,
+                                        horizontal: 16,
+                                      ),
+                                      child: Tooltip(
+                                        message:
+                                        "Removes new columns from the report, such as Silent mode.",
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(
+                                              "Remove\nNew Columns",
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w600,
+                                                color: Colors.blueGrey.shade800,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 10),
+                                            Transform.scale(
+                                              scale: 0.8,
+                                              child: Switch(
+                                                value: _removeNewColumns,
+                                                activeThumbColor:
+                                                Colors.blueAccent,
+                                                onChanged: (bool value) {
+                                                  setState(() {
+                                                    _removeNewColumns = value;
+                                                  });
+                                                  _savePreference(
+                                                    'removeNewColumns',
+                                                    value,
+                                                  );
+                                                },
+                                              ),
+                                            ),
+                                          ],
+                                        ),
                                       ),
                                     ),
-                                    const SizedBox(height: 10),
-                                    Switch(
-                                      value: _removeNewColumns,
-                                      activeColor: Colors.blueAccent,
-                                      onChanged: (bool value) {
-                                        setState(() {
-                                          _removeNewColumns = value;
-                                        });
-                                        _savePreference(
-                                            'removeNewColumns', value);
-                                      },
+
+                                    VerticalDivider(
+                                      color: Colors.blueGrey.shade200,
+                                      thickness: 1,
+                                      width: 1,
+                                      indent: 0,
+                                      endIndent: 0,
                                     ),
-                                    const SizedBox(height: 10),
-                                    Switch(
-                                      value: _removeNewColumns,
-                                      activeColor: Colors.blueAccent,
-                                      onChanged: (bool value) {
-                                        setState(() {
-                                          _removeNewColumns = value;
-                                        });
-                                        _savePreference(
-                                            'removeNewColumns', value);
-                                      },
-                                    )
+
+                                    // 2. Remove Air Quality Info Toggle
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 16,
+                                        horizontal: 16,
+                                      ),
+                                      child: Tooltip(
+                                        message:
+                                        "Removes air quality information.",
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(
+                                              "Remove\nAir Quality Info",
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w600,
+                                                color: Colors.blueGrey.shade800,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 10),
+                                            Transform.scale(
+                                              scale: 0.8,
+                                              child: Switch(
+                                                value: _removeAirQuality,
+                                                activeThumbColor:
+                                                Colors.blueAccent,
+                                                onChanged: (bool value) {
+                                                  setState(() {
+                                                    _removeAirQuality = value;
+                                                  });
+                                                  _savePreference(
+                                                    'removeAirQuality',
+                                                    value,
+                                                  );
+                                                },
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+
+                                    VerticalDivider(
+                                      color: Colors.blueGrey.shade200,
+                                      thickness: 1,
+                                      width: 1,
+                                      indent: 0,
+                                      endIndent: 0,
+                                    ),
+
+                                    // 3. Smart Analyzer Toggle
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 16,
+                                        horizontal: 16,
+                                      ),
+                                      child: Tooltip(
+                                        message:
+                                        "Enables smart analyzer features. (coming soon)",
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(
+                                              "Smart\nAnalyzer",
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w600,
+                                                color: Colors.blueGrey.shade800,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 10),
+                                            Transform.scale(
+                                              scale: 0.8,
+                                              child: Switch(
+                                                value: _smartAnalyzer,
+                                                activeThumbColor:
+                                                Colors.blueAccent,
+                                                onChanged: (bool value) {
+                                                  setState(() {
+                                                    _smartAnalyzer = value;
+                                                  });
+                                                  _savePreference(
+                                                    'smartAnalyzer',
+                                                    value,
+                                                  );
+                                                  _checkExtensionStatus();
+                                                },
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),
-
-                              const SizedBox(width: 24),
-
-                              // 2. Remove Air Quality Info Toggle
-                              Tooltip(
-                                message: "Removes air quality information.",
-                                child: Column(
+                            ),
+                            if (_smartAnalyzer) ...[
+                              Builder(
+                                builder: (context) {
+                                  // Debug print to verify state during build
+                                  print(
+                                      "[UI BUILD] _smartAnalyzer: $_smartAnalyzer, _extensionMessage: $_extensionMessage");
+                                  return const SizedBox.shrink();
+                                },
+                              ),
+                              const SizedBox(height: 12),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 10,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _extensionMessage == null
+                                      ? Colors.green.shade50
+                                      : Colors.orange.shade50,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: _extensionMessage == null
+                                        ? Colors.green.shade300
+                                        : Colors.orange.shade300,
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
+                                    Icon(
+                                      _extensionMessage == null
+                                          ? Icons.check_circle_rounded
+                                          : Icons.warning_amber_rounded,
+                                      color: _extensionMessage == null
+                                          ? Colors.green.shade800
+                                          : Colors.orange.shade800,
+                                      size: 20,
+                                    ),
+                                    const SizedBox(width: 8),
                                     Text(
-                                      "Remove\nAir Quality Info",
-                                      textAlign: TextAlign.center,
+                                      _extensionMessage ?? "Smart Mode Active",
                                       style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.blueGrey.shade800,
+                                        color: _extensionMessage == null
+                                            ? Colors.green.shade900
+                                            : Colors.orange.shade900,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w500,
                                       ),
                                     ),
-                                    const SizedBox(height: 10),
-                                    Switch(
-                                      value: _removeAirQuality,
-                                      activeColor: Colors.blueAccent,
-                                      onChanged: (bool value) {
-                                        setState(() {
-                                          _removeAirQuality = value;
-                                        });
-                                        _savePreference(
-                                            'removeAirQuality', value);
-                                      },
-                                    ),
-
-
-
-
-
-
-
-
                                   ],
                                 ),
                               ),
                             ],
-                          ),
+                          ],
                         ),
                         // ----------------------------
                       ],
@@ -1230,7 +1637,9 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                   width: double.infinity,
                                   margin: const EdgeInsets.only(bottom: 8),
                                   padding: const EdgeInsets.symmetric(
-                                      vertical: 4, horizontal: 8),
+                                    vertical: 4,
+                                    horizontal: 8,
+                                  ),
                                   decoration: BoxDecoration(
                                     color: const Color(0xFFFFFF00),
                                     borderRadius: BorderRadius.circular(6),
@@ -1242,8 +1651,6 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                   ),
                                 ),
                               ),
-
-
                               if (_modelName != null)
                                 Align(
                                   alignment: Alignment.topLeft,
@@ -1251,7 +1658,9 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                     width: double.infinity,
                                     margin: const EdgeInsets.only(bottom: 8),
                                     padding: const EdgeInsets.symmetric(
-                                        vertical: 4, horizontal: 8),
+                                      vertical: 4,
+                                      horizontal: 8,
+                                    ),
                                     decoration: BoxDecoration(
                                       color: const Color(0xFFFFFF00),
                                       borderRadius: BorderRadius.circular(6),
@@ -1263,16 +1672,14 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                     ),
                                   ),
                                 ),
-
-
-
-
                               Align(
                                 alignment: Alignment.topLeft,
                                 child: Container(
                                   margin: const EdgeInsets.only(bottom: 8),
                                   padding: const EdgeInsets.symmetric(
-                                      vertical: 4, horizontal: 8),
+                                    vertical: 4,
+                                    horizontal: 8,
+                                  ),
                                   decoration: BoxDecoration(
                                     color: const Color(0xFFFFFF00),
                                     borderRadius: BorderRadius.circular(6),
@@ -1290,7 +1697,9 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                   child: Container(
                                     margin: const EdgeInsets.only(bottom: 8),
                                     padding: const EdgeInsets.symmetric(
-                                        vertical: 4, horizontal: 8),
+                                      vertical: 4,
+                                      horizontal: 8,
+                                    ),
                                     decoration: BoxDecoration(
                                       color: const Color(0xFFFFFF00),
                                       borderRadius: BorderRadius.circular(6),
@@ -1308,7 +1717,9 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                   child: Container(
                                     margin: const EdgeInsets.only(bottom: 8),
                                     padding: const EdgeInsets.symmetric(
-                                        vertical: 4, horizontal: 8),
+                                      vertical: 4,
+                                      horizontal: 8,
+                                    ),
                                     decoration: BoxDecoration(
                                       color: const Color(0xFFFFFF00),
                                       borderRadius: BorderRadius.circular(6),
@@ -1338,7 +1749,8 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                 Center(
                                   child: Padding(
                                     padding: const EdgeInsets.symmetric(
-                                        vertical: 5.0),
+                                      vertical: 5.0,
+                                    ),
                                     child: Text(
                                       "Reboots",
                                       style: TextStyle(
@@ -1347,7 +1759,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                         // Medium-bold weight looks cleaner than standard bold
                                         color: Colors.blueGrey.shade800,
                                         letterSpacing:
-                                            0.5, // Adds a slight modern touch
+                                        0.5, // Adds a slight modern touch
                                       ),
                                     ),
                                   ),
@@ -1359,12 +1771,15 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                     child: Container(
                                       margin: const EdgeInsets.only(bottom: 16),
                                       padding: const EdgeInsets.symmetric(
-                                          vertical: 4, horizontal: 8),
+                                        vertical: 4,
+                                        horizontal: 8,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: const Color(0xFFEF5350),
                                         borderRadius: BorderRadius.circular(6),
-                                        border:
-                                            Border.all(color: Colors.black12),
+                                        border: Border.all(
+                                          color: Colors.black12,
+                                        ),
                                       ),
                                       child: TipText(
                                         "Total Reboots: $_rebootCount",
@@ -1379,17 +1794,21 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                     child: Container(
                                       margin: const EdgeInsets.only(bottom: 4),
                                       padding: const EdgeInsets.symmetric(
-                                          vertical: 4, horizontal: 8),
+                                        vertical: 4,
+                                        horizontal: 8,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: const Color(0xFFFFE5E8),
                                         // Light Red
                                         borderRadius: BorderRadius.circular(6),
-                                        border:
-                                            Border.all(color: Colors.black12),
+                                        border: Border.all(
+                                          color: Colors.black12,
+                                        ),
                                       ),
                                       child: TipText(
-                                          "Rebooting on heating calls: $_rebootsOnHeat",
-                                          textAlign: TextAlign.left),
+                                        "Rebooting on heating calls: $_rebootsOnHeat",
+                                        textAlign: TextAlign.left,
+                                      ),
                                     ),
                                   ),
 
@@ -1399,17 +1818,21 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                     child: Container(
                                       margin: const EdgeInsets.only(bottom: 4),
                                       padding: const EdgeInsets.symmetric(
-                                          vertical: 4, horizontal: 8),
+                                        vertical: 4,
+                                        horizontal: 8,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: const Color(0xFFF3F4F6),
                                         // Neutral Grey
                                         borderRadius: BorderRadius.circular(6),
-                                        border:
-                                            Border.all(color: Colors.black12),
+                                        border: Border.all(
+                                          color: Colors.black12,
+                                        ),
                                       ),
                                       child: TipText(
-                                          "Rebooting on no equipment running: $_rebootsOnNone",
-                                          textAlign: TextAlign.left),
+                                        "Rebooting on no equipment running: $_rebootsOnNone",
+                                        textAlign: TextAlign.left,
+                                      ),
                                     ),
                                   ),
 
@@ -1419,17 +1842,21 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                     child: Container(
                                       margin: const EdgeInsets.only(bottom: 16),
                                       padding: const EdgeInsets.symmetric(
-                                          vertical: 4, horizontal: 8),
+                                        vertical: 4,
+                                        horizontal: 8,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: const Color(0xFFCADFF2),
                                         // Light Blue
                                         borderRadius: BorderRadius.circular(6),
-                                        border:
-                                            Border.all(color: Colors.black12),
+                                        border: Border.all(
+                                          color: Colors.black12,
+                                        ),
                                       ),
                                       child: TipText(
-                                          "Rebooting on cooling calls: $_rebootsOnCool",
-                                          textAlign: TextAlign.left),
+                                        "Rebooting on cooling calls: $_rebootsOnCool",
+                                        textAlign: TextAlign.left,
+                                      ),
                                     ),
                                   ),
 
@@ -1445,7 +1872,8 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                 Center(
                                   child: Padding(
                                     padding: const EdgeInsets.symmetric(
-                                        vertical: 12.0),
+                                      vertical: 12.0,
+                                    ),
                                     child: Text(
                                       "Runtimes",
                                       style: TextStyle(
@@ -1454,7 +1882,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                         // Medium-bold weight looks cleaner than standard bold
                                         color: Colors.blueGrey.shade800,
                                         letterSpacing:
-                                            0.5, // Adds a slight modern touch
+                                        0.5, // Adds a slight modern touch
                                       ),
                                     ),
                                   ),
@@ -1465,15 +1893,20 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                     child: Container(
                                       margin: const EdgeInsets.only(bottom: 8),
                                       padding: const EdgeInsets.symmetric(
-                                          vertical: 4, horizontal: 8),
+                                        vertical: 4,
+                                        horizontal: 8,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: const Color(0xFFC6E0B4),
                                         borderRadius: BorderRadius.circular(6),
-                                        border:
-                                            Border.all(color: Colors.black12),
+                                        border: Border.all(
+                                          color: Colors.black12,
+                                        ),
                                       ),
                                       child: TipText(
-                                        "Fan: ${(_totalFanHours! * 3600).toInt()} seconds (${_totalFanHours!.toStringAsFixed(2)} hours)",
+                                        "Fan: ${(_totalFanHours! * 3600)
+                                            .toInt()} seconds (${_totalFanHours!
+                                            .toStringAsFixed(2)} hours)",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
@@ -1486,16 +1919,23 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                     child: Container(
                                       margin: const EdgeInsets.only(bottom: 8),
                                       padding: const EdgeInsets.symmetric(
-                                          vertical: 4, horizontal: 8),
+                                        vertical: 4,
+                                        horizontal: 8,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: const Color(0xFFCADFF2),
                                         borderRadius: BorderRadius.circular(6),
-                                        border:
-                                            Border.all(color: Colors.black12),
+                                        border: Border.all(
+                                          color: Colors.black12,
+                                        ),
                                       ),
                                       child: TipText(
-                                          "Cool (Stage 1): ${(_totalCool1Hours! * 3600).toInt()} seconds (${_totalCool1Hours!.toStringAsFixed(2)} hours)",
-                                          textAlign: TextAlign.left),
+                                        "Cool (Stage 1): ${(_totalCool1Hours! *
+                                            3600)
+                                            .toInt()} seconds (${_totalCool1Hours!
+                                            .toStringAsFixed(2)} hours)",
+                                        textAlign: TextAlign.left,
+                                      ),
                                     ),
                                   ),
                                 if (_totalCool2Hours != null)
@@ -1504,16 +1944,23 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                     child: Container(
                                       margin: const EdgeInsets.only(bottom: 8),
                                       padding: const EdgeInsets.symmetric(
-                                          vertical: 4, horizontal: 8),
+                                        vertical: 4,
+                                        horizontal: 8,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: const Color(0xFFCADFF2),
                                         borderRadius: BorderRadius.circular(6),
-                                        border:
-                                            Border.all(color: Colors.black12),
+                                        border: Border.all(
+                                          color: Colors.black12,
+                                        ),
                                       ),
                                       child: TipText(
-                                          "Cool (Stage 2): ${(_totalCool2Hours! * 3600).toInt()} seconds (${_totalCool2Hours!.toStringAsFixed(2)} hours)",
-                                          textAlign: TextAlign.left),
+                                        "Cool (Stage 2): ${(_totalCool2Hours! *
+                                            3600)
+                                            .toInt()} seconds (${_totalCool2Hours!
+                                            .toStringAsFixed(2)} hours)",
+                                        textAlign: TextAlign.left,
+                                      ),
                                     ),
                                   ),
 
@@ -1524,16 +1971,23 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                     child: Container(
                                       margin: const EdgeInsets.only(bottom: 8),
                                       padding: const EdgeInsets.symmetric(
-                                          vertical: 4, horizontal: 8),
+                                        vertical: 4,
+                                        horizontal: 8,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: const Color(0xFFFFE5E8),
                                         borderRadius: BorderRadius.circular(6),
-                                        border:
-                                            Border.all(color: Colors.black12),
+                                        border: Border.all(
+                                          color: Colors.black12,
+                                        ),
                                       ),
                                       child: TipText(
-                                          "Heat (Stage 1): ${(_totalHeat1Hours! * 3600).toInt()} seconds (${_totalHeat1Hours!.toStringAsFixed(2)} hours)",
-                                          textAlign: TextAlign.left),
+                                        "Heat (Stage 1): ${(_totalHeat1Hours! *
+                                            3600)
+                                            .toInt()} seconds (${_totalHeat1Hours!
+                                            .toStringAsFixed(2)} hours)",
+                                        textAlign: TextAlign.left,
+                                      ),
                                     ),
                                   ),
                                 if (_totalHeat2Hours != null)
@@ -1542,16 +1996,23 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                     child: Container(
                                       margin: const EdgeInsets.only(bottom: 8),
                                       padding: const EdgeInsets.symmetric(
-                                          vertical: 4, horizontal: 8),
+                                        vertical: 4,
+                                        horizontal: 8,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: const Color(0xFFFFE5E8),
                                         borderRadius: BorderRadius.circular(6),
-                                        border:
-                                            Border.all(color: Colors.black12),
+                                        border: Border.all(
+                                          color: Colors.black12,
+                                        ),
                                       ),
                                       child: TipText(
-                                          "Heat (Stage 2): ${(_totalHeat2Hours! * 3600).toInt()} seconds (${_totalHeat2Hours!.toStringAsFixed(2)} hours)",
-                                          textAlign: TextAlign.left),
+                                        "Heat (Stage 2): ${(_totalHeat2Hours! *
+                                            3600)
+                                            .toInt()} seconds (${_totalHeat2Hours!
+                                            .toStringAsFixed(2)} hours)",
+                                        textAlign: TextAlign.left,
+                                      ),
                                     ),
                                   ),
 
@@ -1562,16 +2023,23 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                     child: Container(
                                       margin: const EdgeInsets.only(bottom: 8),
                                       padding: const EdgeInsets.symmetric(
-                                          vertical: 4, horizontal: 8),
+                                        vertical: 4,
+                                        horizontal: 8,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: const Color(0xFFFFE5E8),
                                         borderRadius: BorderRadius.circular(6),
-                                        border:
-                                            Border.all(color: Colors.black12),
+                                        border: Border.all(
+                                          color: Colors.black12,
+                                        ),
                                       ),
                                       child: TipText(
-                                          "Aux Heat (Stage 1): ${(_totalAux1Hours! * 3600).toInt()} seconds (${_totalAux1Hours!.toStringAsFixed(2)} hours)",
-                                          textAlign: TextAlign.left),
+                                        "Aux Heat (Stage 1): ${(_totalAux1Hours! *
+                                            3600)
+                                            .toInt()} seconds (${_totalAux1Hours!
+                                            .toStringAsFixed(2)} hours)",
+                                        textAlign: TextAlign.left,
+                                      ),
                                     ),
                                   ),
                                 if (_totalAux2Hours != null)
@@ -1580,16 +2048,23 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                     child: Container(
                                       margin: const EdgeInsets.only(bottom: 8),
                                       padding: const EdgeInsets.symmetric(
-                                          vertical: 4, horizontal: 8),
+                                        vertical: 4,
+                                        horizontal: 8,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: const Color(0xFFFFE5E8),
                                         borderRadius: BorderRadius.circular(6),
-                                        border:
-                                            Border.all(color: Colors.black12),
+                                        border: Border.all(
+                                          color: Colors.black12,
+                                        ),
                                       ),
                                       child: TipText(
-                                          "Aux Heat (Stage 2): ${(_totalAux2Hours! * 3600).toInt()} seconds (${_totalAux2Hours!.toStringAsFixed(2)} hours)",
-                                          textAlign: TextAlign.left),
+                                        "Aux Heat (Stage 2): ${(_totalAux2Hours! *
+                                            3600)
+                                            .toInt()} seconds (${_totalAux2Hours!
+                                            .toStringAsFixed(2)} hours)",
+                                        textAlign: TextAlign.left,
+                                      ),
                                     ),
                                   ),
                                 Divider(
@@ -1604,7 +2079,8 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                 Center(
                                   child: Padding(
                                     padding: const EdgeInsets.symmetric(
-                                        vertical: 12.0),
+                                      vertical: 12.0,
+                                    ),
                                     child: Text(
                                       "Average Set Temperature",
                                       style: TextStyle(
@@ -1613,7 +2089,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                         // Medium-bold weight looks cleaner than standard bold
                                         color: Colors.blueGrey.shade800,
                                         letterSpacing:
-                                            0.5, // Adds a slight modern touch
+                                        0.5, // Adds a slight modern touch
                                       ),
                                     ),
                                   ),
@@ -1624,16 +2100,21 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                     child: Container(
                                       margin: const EdgeInsets.only(bottom: 8),
                                       padding: const EdgeInsets.symmetric(
-                                          vertical: 4, horizontal: 8),
+                                        vertical: 4,
+                                        horizontal: 8,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: const Color(0xFFFFE5E8),
                                         // Light Red
                                         borderRadius: BorderRadius.circular(6),
-                                        border:
-                                            Border.all(color: Colors.black12),
+                                        border: Border.all(
+                                          color: Colors.black12,
+                                        ),
                                       ),
                                       child: TipText(
-                                        "Heat: ${_avgHeatSetTemp!.toStringAsFixed(1)}${(_isCelsius == true) ? '°C' : '°F'}",
+                                        "Heat: ${_avgHeatSetTemp!
+                                            .toStringAsFixed(1)}${(_isCelsius ==
+                                            true) ? '°C' : '°F'}",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
@@ -1645,16 +2126,21 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                     child: Container(
                                       margin: const EdgeInsets.only(bottom: 8),
                                       padding: const EdgeInsets.symmetric(
-                                          vertical: 4, horizontal: 8),
+                                        vertical: 4,
+                                        horizontal: 8,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: const Color(0xFFCADFF2),
                                         // Light Blue
                                         borderRadius: BorderRadius.circular(6),
-                                        border:
-                                            Border.all(color: Colors.black12),
+                                        border: Border.all(
+                                          color: Colors.black12,
+                                        ),
                                       ),
                                       child: TipText(
-                                        "Cool: ${_avgCoolSetTemp!.toStringAsFixed(1)}${(_isCelsius == true) ? '°C' : '°F'}",
+                                        "Cool: ${_avgCoolSetTemp!
+                                            .toStringAsFixed(1)}${(_isCelsius ==
+                                            true) ? '°C' : '°F'}",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
@@ -1671,9 +2157,11 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                 Center(
                                   child: Padding(
                                     padding: const EdgeInsets.symmetric(
-                                        vertical: 12.0),
+                                      vertical: 12.0,
+                                    ),
                                     child: Text(
-                                      "Runtime Efficiency (${(_isCelsius == true) ? '°C' : '°F'}/hr)",
+                                      "Runtime Efficiency (${(_isCelsius ==
+                                          true) ? '°C' : '°F'}/hr)",
                                       style: TextStyle(
                                         fontSize: 18,
                                         fontWeight: FontWeight.w600,
@@ -1690,15 +2178,20 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                     child: Container(
                                       margin: const EdgeInsets.only(bottom: 8),
                                       padding: const EdgeInsets.symmetric(
-                                          vertical: 4, horizontal: 8),
+                                        vertical: 4,
+                                        horizontal: 8,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: const Color(0xFFFFE5E8),
                                         borderRadius: BorderRadius.circular(6),
-                                        border:
-                                            Border.all(color: Colors.black12),
+                                        border: Border.all(
+                                          color: Colors.black12,
+                                        ),
                                       ),
                                       child: TipText(
-                                        "Heating Stage 1: ${_stage1HeatingSpeed!.toStringAsFixed(2)}${(_isCelsius == true) ? '°C' : '°F'}/hr",
+                                        "Heating Stage 1: ${_stage1HeatingSpeed!
+                                            .toStringAsFixed(2)}${(_isCelsius ==
+                                            true) ? '°C' : '°F'}/hr",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
@@ -1710,16 +2203,21 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                     child: Container(
                                       margin: const EdgeInsets.only(bottom: 8),
                                       padding: const EdgeInsets.symmetric(
-                                          vertical: 4, horizontal: 8),
+                                        vertical: 4,
+                                        horizontal: 8,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: const Color(0xFFFFCCAA),
                                         // A slightly warmer color for Stage 2
                                         borderRadius: BorderRadius.circular(6),
-                                        border:
-                                            Border.all(color: Colors.black12),
+                                        border: Border.all(
+                                          color: Colors.black12,
+                                        ),
                                       ),
                                       child: TipText(
-                                        "Heating Stage 2: ${_stage2HeatingSpeed!.toStringAsFixed(2)}${(_isCelsius == true) ? '°C' : '°F'}/hr",
+                                        "Heating Stage 2: ${_stage2HeatingSpeed!
+                                            .toStringAsFixed(2)}${(_isCelsius ==
+                                            true) ? '°C' : '°F'}/hr",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
@@ -1731,16 +2229,21 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                     child: Container(
                                       margin: const EdgeInsets.only(bottom: 8),
                                       padding: const EdgeInsets.symmetric(
-                                          vertical: 4, horizontal: 8),
+                                        vertical: 4,
+                                        horizontal: 8,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: const Color(0xFFFF9999),
                                         // Hotter color for Aux
                                         borderRadius: BorderRadius.circular(6),
-                                        border:
-                                            Border.all(color: Colors.black12),
+                                        border: Border.all(
+                                          color: Colors.black12,
+                                        ),
                                       ),
                                       child: TipText(
-                                        "Heating Aux Heat: ${_auxHeatingSpeed!.toStringAsFixed(2)}${(_isCelsius == true) ? '°C' : '°F'}/hr",
+                                        "Heating Aux Heat: ${_auxHeatingSpeed!
+                                            .toStringAsFixed(2)}${(_isCelsius ==
+                                            true) ? '°C' : '°F'}/hr",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
@@ -1753,16 +2256,21 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                     child: Container(
                                       margin: const EdgeInsets.only(bottom: 8),
                                       padding: const EdgeInsets.symmetric(
-                                          vertical: 4, horizontal: 8),
+                                        vertical: 4,
+                                        horizontal: 8,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: const Color(0xFFCADFF2),
                                         // Light Blue
                                         borderRadius: BorderRadius.circular(6),
-                                        border:
-                                            Border.all(color: Colors.black12),
+                                        border: Border.all(
+                                          color: Colors.black12,
+                                        ),
                                       ),
                                       child: TipText(
-                                        "Cool Stage 1: ${_stage1CoolingSpeed!.toStringAsFixed(2)}${(_isCelsius == true) ? '°C' : '°F'}/hr",
+                                        "Cool Stage 1: ${_stage1CoolingSpeed!
+                                            .toStringAsFixed(2)}${(_isCelsius ==
+                                            true) ? '°C' : '°F'}/hr",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
@@ -1774,16 +2282,21 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                     child: Container(
                                       margin: const EdgeInsets.only(bottom: 8),
                                       padding: const EdgeInsets.symmetric(
-                                          vertical: 4, horizontal: 8),
+                                        vertical: 4,
+                                        horizontal: 8,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: const Color(0xFF99CCFF),
                                         // Darker Blue
                                         borderRadius: BorderRadius.circular(6),
-                                        border:
-                                            Border.all(color: Colors.black12),
+                                        border: Border.all(
+                                          color: Colors.black12,
+                                        ),
                                       ),
                                       child: TipText(
-                                        "Cool Stage 2: ${_stage2CoolingSpeed!.toStringAsFixed(2)}${(_isCelsius == true) ? '°C' : '°F'}/hr",
+                                        "Cool Stage 2: ${_stage2CoolingSpeed!
+                                            .toStringAsFixed(2)}${(_isCelsius ==
+                                            true) ? '°C' : '°F'}/hr",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
@@ -1795,7 +2308,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                             ExpandableSectionCard(
                               maxWidth: 350,
                               title:
-                                  " Reboot Indicators Table (${_rebootCount ?? 0})",
+                              " Reboot Indicators Table (${_rebootCount ?? 0})",
                               titleColor: Colors.black,
                               titleBackgroundColor: const Color(0xFFEF5350),
                               initiallyExpanded: false,
@@ -1812,8 +2325,9 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                           border: TableBorder.all(
                                             color: Colors.grey.shade300,
                                             width: 1,
-                                            borderRadius:
-                                                BorderRadius.circular(8),
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
                                           ),
                                           columnWidths: const {
                                             0: FixedColumnWidth(60),
@@ -1824,7 +2338,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                             // Evenly expands to fill the remaining width
                                           },
                                           defaultVerticalAlignment:
-                                              TableCellVerticalAlignment.middle,
+                                          TableCellVerticalAlignment.middle,
                                           children: [
                                             // 1. Table Header Row
                                             TableRow(
@@ -1834,41 +2348,50 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                               children: [
                                                 Padding(
                                                   padding: const EdgeInsets.all(
-                                                      10.0),
+                                                    10.0,
+                                                  ),
                                                   child: Text(
                                                     '#',
                                                     textAlign: TextAlign.center,
                                                     style: TextStyle(
-                                                        fontWeight:
-                                                            FontWeight.bold,
-                                                        color: Colors
-                                                            .blueGrey.shade700),
+                                                      fontWeight:
+                                                      FontWeight.bold,
+                                                      color: Colors
+                                                          .blueGrey
+                                                          .shade700,
+                                                    ),
                                                   ),
                                                 ),
                                                 Padding(
                                                   padding: const EdgeInsets.all(
-                                                      10.0),
+                                                    10.0,
+                                                  ),
                                                   child: Text(
                                                     'Start Date',
                                                     textAlign: TextAlign.center,
                                                     style: TextStyle(
-                                                        fontWeight:
-                                                            FontWeight.bold,
-                                                        color: Colors
-                                                            .blueGrey.shade700),
+                                                      fontWeight:
+                                                      FontWeight.bold,
+                                                      color: Colors
+                                                          .blueGrey
+                                                          .shade700,
+                                                    ),
                                                   ),
                                                 ),
                                                 Padding(
                                                   padding: const EdgeInsets.all(
-                                                      10.0),
+                                                    10.0,
+                                                  ),
                                                   child: Text(
                                                     'Start Time',
                                                     textAlign: TextAlign.center,
                                                     style: TextStyle(
-                                                        fontWeight:
-                                                            FontWeight.bold,
-                                                        color: Colors
-                                                            .blueGrey.shade700),
+                                                      fontWeight:
+                                                      FontWeight.bold,
+                                                      color: Colors
+                                                          .blueGrey
+                                                          .shade700,
+                                                    ),
                                                   ),
                                                 ),
                                               ],
@@ -1878,7 +2401,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                             ..._rebootDetails
                                                 .asMap()
                                                 .entries
-                                                .map((entry) {
+                                                .map((entry,) {
                                               final int index = entry.key;
                                               final dynamic detail =
                                                   entry.value;
@@ -1891,63 +2414,79 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
 
                                               // Safely extract from our new Map structure
                                               if (detail is Map) {
-                                                rebootStartDate = detail['date']
+                                                rebootStartDate =
+                                                    detail['date']
                                                         ?.toString() ??
-                                                    '';
-                                                rebootStartTime = detail['time']
+                                                        '';
+                                                rebootStartTime =
+                                                    detail['time']
                                                         ?.toString() ??
-                                                    '';
-                                                rebootType = detail['type']
+                                                        '';
+                                                rebootType =
+                                                    detail['type']
                                                         ?.toString() ??
-                                                    'None';
+                                                        'None';
                                               }
 
                                               // Determine the row color based on the equipment state
                                               Color rowColor = Colors.white;
                                               if (rebootType == "Heat")
                                                 rowColor = const Color(
-                                                    0xFFFFE5E8); // Light Red
+                                                  0xFFFFE5E8,
+                                                ); // Light Red
                                               if (rebootType == "Cool")
                                                 rowColor = const Color(
-                                                    0xFFCADFF2); // Light Blue
+                                                  0xFFCADFF2,
+                                                ); // Light Blue
                                               if (rebootType == "None")
                                                 rowColor = const Color(
-                                                    0xFFF9FAFB); // Neutral Grey
+                                                  0xFFF9FAFB,
+                                                ); // Neutral Grey
 
                                               return TableRow(
                                                 decoration: BoxDecoration(
-                                                    color: rowColor),
+                                                  color: rowColor,
+                                                ),
                                                 children: [
                                                   Padding(
                                                     padding:
-                                                        const EdgeInsets.all(
-                                                            10.0),
-                                                    child: Text(rebootCounter,
-                                                        textAlign:
-                                                            TextAlign.center),
+                                                    const EdgeInsets.all(
+                                                      10.0,
+                                                    ),
+                                                    child: Text(
+                                                      rebootCounter,
+                                                      textAlign:
+                                                      TextAlign.center,
+                                                    ),
                                                   ),
                                                   Padding(
                                                     padding:
-                                                        const EdgeInsets.all(
-                                                            10.0),
-                                                    child: Text(rebootStartDate,
-                                                        textAlign:
-                                                            TextAlign.center),
+                                                    const EdgeInsets.all(
+                                                      10.0,
+                                                    ),
+                                                    child: Text(
+                                                      rebootStartDate,
+                                                      textAlign:
+                                                      TextAlign.center,
+                                                    ),
                                                   ),
                                                   Padding(
                                                     padding:
-                                                        const EdgeInsets.all(
-                                                            10.0),
-                                                    child: Text(rebootStartTime,
-                                                        textAlign:
-                                                            TextAlign.center),
+                                                    const EdgeInsets.all(
+                                                      10.0,
+                                                    ),
+                                                    child: Text(
+                                                      rebootStartTime,
+                                                      textAlign:
+                                                      TextAlign.center,
+                                                    ),
                                                   ),
                                                 ],
                                               );
                                             }).toList(),
                                           ],
                                         ),
-                                      )
+                                      ),
                                     ],
                                   )
                                 else
@@ -1955,7 +2494,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                               ],
                             ),
                         ],
-                      )
+                      ),
 
                     // const SizedBox(height: 32),
                     // Text(
@@ -2013,8 +2552,9 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
 
 class KnowledgeBaseService {
   Future<List<KnowledgeItem>> loadKnowledgeBase() async {
-    final rawJson =
-        await rootBundle.loadString('assets/data/knowledge_base.json');
+    final rawJson = await rootBundle.loadString(
+      'assets/data/knowledge_base.json',
+    );
 
     final decoded = jsonDecode(rawJson) as Map<String, dynamic>;
     final chunkList = decoded['chunks'] as List<dynamic>? ?? [];
@@ -2026,13 +2566,16 @@ class KnowledgeBaseService {
 }
 
 class LocalSearchService {
-  List<SearchResult> retrieveTopMatches(
-    List<KnowledgeItem> items,
-    String query, {
-    int limit = 5,
-  }) {
-    final results = items
-        .map((item) => SearchResult(item: item, score: _scoreItem(item, query)))
+  List<SearchResult> retrieveTopMatches(List<KnowledgeItem> items,
+      String query, {
+        int limit = 5,
+      }) {
+    final results =
+    items
+        .map(
+          (item) =>
+          SearchResult(item: item, score: _scoreItem(item, query)),
+    )
         .where((result) => result.score > 0)
         .toList()
       ..sort((a, b) => b.score.compareTo(a.score));
@@ -2048,8 +2591,10 @@ class LocalSearchService {
     if (item.title.toLowerCase().contains(q)) score += 10;
     if (item.content.toLowerCase().contains(q)) score += 7;
     if (item.category.toLowerCase().contains(q)) score += 4;
-    if (item.tags.any((tag) =>
-        tag.toLowerCase().contains(q) || q.contains(tag.toLowerCase()))) {
+    if (item.tags.any(
+          (tag) =>
+      tag.toLowerCase().contains(q) || q.contains(tag.toLowerCase()),
+    )) {
       score += 8;
     }
 
@@ -2078,7 +2623,8 @@ class GeminiService {
     required String userQuery,
     required List<SearchResult> matches,
   }) async {
-    final context = matches.map((result) {
+    final context = matches
+        .map((result) {
       final item = result.item;
       return [
         'ID: ${item.id}',
@@ -2089,9 +2635,11 @@ class GeminiService {
         'Content: ${item.content}',
         'Source: ${item.source}',
       ].join('\n');
-    }).join('\n\n---\n\n');
+    })
+        .join('\n\n---\n\n');
 
-    final prompt = '''You are a friendly AI support assistant.
+    final prompt =
+    '''You are a friendly AI support assistant.
 
 Handle messages in two modes:
 
@@ -2126,16 +2674,17 @@ $userQuery''';
 
     final response = await http.post(
       Uri.parse(
-          'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$apiKey'),
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$apiKey',
+      ),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         'contents': [
           {
             'parts': [
-              {'text': prompt}
-            ]
-          }
-        ]
+              {'text': prompt},
+            ],
+          },
+        ],
       }),
     );
 
@@ -2160,7 +2709,9 @@ $userQuery''';
         .whereType<String>()
         .join('\n');
 
-    if (text.trim().isEmpty) {
+    if (text
+        .trim()
+        .isEmpty) {
       throw Exception('Gemini returned an empty response.');
     }
 

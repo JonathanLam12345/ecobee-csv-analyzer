@@ -1,4 +1,53 @@
 chrome.runtime.onMessageExternal.addListener((request, sender, sendResponse) => {
+
+  if (request.action === "getVersion") {
+      sendResponse({ version: "1.0.1" });
+      return;
+    }
+
+
+  if (request.action === "fetchDeviceDetails") {
+      const serialNumber = request.serialNumber;
+      const targetUrl = `https://admin.ecobee.com/device/${serialNumber}/details`;
+
+      fetch(targetUrl, { credentials: 'include' }) // Ensures session cookies are included
+        .then(response => {
+          if (!response.ok) throw new Error(`HTTP status ${response.status}`);
+          return response.text();
+        })
+        .then(htmlText => {
+          // Use DOMParser to parse the HTML document inside the service worker
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(htmlText, 'text/html');
+
+          // Target the specific container matching your XPath structure:
+          // /html/body/div[1]/div[2]/main/div/div[2]/div[3]/div[1]/div[2]/div[3]/dd
+          const targetElement = doc.querySelector('body > div:nth-child(1) > div:nth-child(2) > main > div > div:nth-child(2) > div:nth-child(3) > div:nth-child(1) > div:nth-child(2) > div:nth-child(3) > dd');
+
+          let fullName = targetElement ? targetElement.textContent.trim() : null;
+
+          // Fallback: if the exact nth-child path changes, search for the label or text container
+          if (!fullName) {
+            const ddElements = doc.querySelectorAll('dd');
+            if (ddElements.length > 0) {
+              fullName = ddElements[2].textContent.trim(); // Fallback index check
+            }
+          }
+
+          console.log("--- [SMART ANALYZER SCRAPE] ---");
+          console.log("Target URL:", targetUrl);
+          console.log("Extracted Full Name:", fullName || "Not Found");
+
+          sendResponse({ success: true, fullName: fullName || "Not Found" });
+        })
+        .catch(err => {
+          console.error("Error fetching device details:", err);
+          sendResponse({ success: false, error: err.message });
+        });
+
+      return true; // Keep message channel open for async fetch
+    }
+/////////////////////////
   if (request.action === "fetchTemp") {
     const ip = request.ip;
 
