@@ -62,6 +62,30 @@ class _HowToUsePageState extends State<HowToUsePage> {
         child: Center(
           child: Column(
             children: [
+
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1100),
+                child: SectionCard(
+                  title: "About the Application",
+                  children: [
+                    TipText(
+                      "This web application is designed to format and organize ecobee thermostat CSV reports, making them easier to read, interpret, and troubleshoot. It uses standardized headers, structured layouts, and color-coded data to improve report readability and help users quickly identify important information.",
+                    ),
+                    const SizedBox(height: 12),
+                    TipText(
+                      "Key Features:\n"
+                          "• Analyzes thermostat reports to determine heating and cooling system runtimes.\n"
+                          "• Identifies and analyzes potential thermostat issues, such as unexpected reboots and unusual system behavior.\n"
+                          "• Calculates average thermostat set temperatures over a selected reporting period.\n"
+                          "• Evaluates system runtime patterns to help identify potential inefficiencies and unusual operating trends.\n"
+                          "• Displays the full name of the thermostat owner.\n"
+                          "• Displays the thermostat's system configuration and setup type.",
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 20),
               ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 1100),
                 child: SectionCard(

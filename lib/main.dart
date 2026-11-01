@@ -98,6 +98,8 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
   String? _startDate;
   String? _endDate;
   bool? _isCelsius;
+  String? _ownerName;
+  List<String> _wireButtons = [];
 
   int? _rebootCount;
   int? _rebootsOnHeat;
@@ -112,7 +114,6 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
   void initState() {
     super.initState();
     _loadPreferences();
-
 
     _versionRef = FirebaseDatabase.instanceFor(
       app: Firebase.app(),
@@ -129,9 +130,6 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       }
     });
   }
-
-
-
 
   Future<void> _checkExtensionStatus() async {
     if (!_smartAnalyzer) {
@@ -155,7 +153,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
         if (!mounted) return;
         setState(() {
           _extensionMessage =
-          "1) Smart Analyzer Chrome extension is not downloaded / installed.";
+              "1) Smart Analyzer Chrome extension is not downloaded / installed.";
         });
         return;
       }
@@ -176,9 +174,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
         print("[DEBUG] Raw response received from extension: $response");
         if (response != null && !response.isUndefinedOrNull) {
           final respObj = response as JSObject;
-          final hasVer = respObj
-              .hasProperty('version'.toJS)
-              .toDart;
+          final hasVer = respObj.hasProperty('version'.toJS).toDart;
           print("[DEBUG] Response has 'version' property? $hasVer");
           final ver = hasVer
               ? respObj.getProperty('version'.toJS).dartify()?.toString()
@@ -213,14 +209,13 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
 
       if (installedVersion == null) {
         setState(() {
-          _extensionMessage =
-          "3) Smart Analyzer is not installed.";
+          _extensionMessage = "3) Smart Analyzer is not installed.";
         });
       } else if (!_isUpToDate(requiredVersion, installedVersion) &&
           installedVersion != requiredVersion) {
         setState(() {
           _extensionMessage =
-          "4) Smart Analyzer Chrome extension is outdated (v$installedVersion). Please update to v$requiredVersion.";
+              "4) Smart Analyzer Chrome extension is outdated (v$installedVersion). Please update to v$requiredVersion.";
         });
       } else {
         print("[DEBUG] Success! Extension is installed and up-to-date.");
@@ -234,13 +229,12 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       if (!mounted) return;
       setState(() {
         _extensionMessage =
-        "5) Smart Analyzer Chrome extension is not downloaded.";
+            "5) Smart Analyzer Chrome extension is not downloaded.";
       });
     }
   }
 
-
-  Future<String?> _fetchFullName(String serialNumber) async {
+  Future<Map<String, dynamic>?> _fetchFullName(String serialNumber) async {
     // HARD GUARD: Never attempt to scrape if Smart Analyzer is turned off
     if (!_smartAnalyzer) return null;
 
@@ -252,20 +246,29 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       if (runtime.isUndefinedOrNull) return null;
 
       const String extensionId = "acmaldmbeckghjmebolfjefpnkcciadc";
-      final completer = Completer<String?>();
+      final completer = Completer<Map<String, dynamic>?>();
 
       final callback = ((JSAny? response) {
         try {
           final dynamic dartResp = response?.dartify();
           if (dartResp is Map) {
             final String? fullName = dartResp['fullName']?.toString();
-            if (!completer.isCompleted) completer.complete(fullName);
+            final List<dynamic>? rawWires =
+                dartResp['wireButtons'] as List<dynamic>?;
+            final List<String> wires =
+                rawWires?.map((e) => e.toString()).toList() ?? [];
+
+            if (!completer.isCompleted) {
+              completer.complete({'fullName': fullName, 'wires': wires});
+            }
             return;
           }
-          if (!completer.isCompleted) completer.complete(null);
+          if (!completer.isCompleted)
+            completer.complete({'fullName': null, 'wires': <String>[]});
         } catch (e) {
           print("[DEBUG] Dartify/Parsing error: $e");
-          if (!completer.isCompleted) completer.complete(null);
+          if (!completer.isCompleted)
+            completer.complete({'fullName': null, 'wires': <String>[]});
         }
       }).toJS;
 
@@ -276,9 +279,14 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
         callback,
       );
 
-      // --- REMOVED TIMEOUT: This will now wait asynchronously until the extension responds ---
-      return await completer.future;
-
+      final result = await completer.future.timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          print("[DEBUG] Device details fetch timed out in Flutter.");
+          return null;
+        },
+      );
+      return result;
     } catch (e) {
       print("[DEBUG] Exception in _fetchFullName: $e");
       return null;
@@ -344,11 +352,36 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       }
     }
   }
-  // -------------------------
+
+  Future<void> _clearAllCache() async {
+    try {
+      final chrome = web.window.getProperty('chrome'.toJS);
+      if (chrome.isUndefinedOrNull) return;
+
+      final runtime = (chrome as JSObject).getProperty('runtime'.toJS);
+      if (runtime.isUndefinedOrNull) return;
+
+      const String extensionId = "acmaldmbeckghjmebolfjefpnkcciadc";
+
+      (runtime as JSObject).callMethod(
+        'sendMessage'.toJS,
+        extensionId.toJS,
+        {'action': 'clearCache'}.jsify()!,
+      );
+
+      // Optional: Give yourself a visual status message or snackbar feedback
+      setState(() {
+        _statusMessage = "Extension cache cleared!";
+      });
+      print("[DEBUG] Entire extension storage cache wiped.");
+    } catch (e) {
+      print("[DEBUG] Failed to clear cache: $e");
+    }
+  }
 
   void _pickFile() {
     final html.FileUploadInputElement uploadInput =
-    html.FileUploadInputElement();
+        html.FileUploadInputElement();
     uploadInput.accept = '.csv';
     uploadInput.click();
 
@@ -424,6 +457,8 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       double totalFanSeconds = 0;
 
       _modelName = null;
+      _ownerName = null;
+      _wireButtons = [];
       _totalCool1Hours = null;
       _totalCool2Hours = null;
       _totalHeat1Hours = null;
@@ -460,20 +495,18 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
       bool lastStateWasCooling = false;
 
       // Find the runtime column indexes early so we can evaluate equipment state
-      List<dynamic> earlyHeaderRow = csvRows.length >= 6
-          ? csvRows[5]
-          : <dynamic>[];
+      List<dynamic> earlyHeaderRow =
+          csvRows.length >= 6 ? csvRows[5] : <dynamic>[];
 
       // Dynamically find the Outdoor Temp column index (handles slight naming variations)
       int outdoorTempIdx = earlyHeaderRow.indexWhere(
-            (h) => h.toString().toLowerCase().contains("outdoor temp"),
+        (h) => h.toString().toLowerCase().contains("outdoor temp"),
       );
 
       bool isCelsius = false;
       if (outdoorTempIdx != -1 && outdoorTempIdx < earlyHeaderRow.length) {
-        String headerText = earlyHeaderRow[outdoorTempIdx]
-            .toString()
-            .toLowerCase();
+        String headerText =
+            earlyHeaderRow[outdoorTempIdx].toString().toLowerCase();
         isCelsius = headerText.contains("(c)");
       }
 
@@ -494,9 +527,9 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
         // Column C is index 2 | Outdoor Temp index is dynamically fetched
         String colC = row[2]?.toString().trim() ?? "";
         String outdoorTempVal =
-        (outdoorTempIdx != -1 && outdoorTempIdx < row.length)
-            ? row[outdoorTempIdx]?.toString().trim() ?? ""
-            : "";
+            (outdoorTempIdx != -1 && outdoorTempIdx < row.length)
+                ? row[outdoorTempIdx]?.toString().trim() ?? ""
+                : "";
         // A REBOOT ROW: Column C is blank, but Column K HAS data
         bool isRebootRow = colC.isEmpty && outdoorTempVal.isNotEmpty;
 
@@ -541,12 +574,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
           inRebootPeriod = false;
 
           // --- Check THIS row's runtimes to save for the NEXT potential reboot ---
-          double c1 = 0,
-              c2 = 0,
-              h1 = 0,
-              h2 = 0,
-              a1 = 0,
-              a2 = 0;
+          double c1 = 0, c2 = 0, h1 = 0, h2 = 0, a1 = 0, a2 = 0;
 
           if (rCool1Idx != -1 && rCool1Idx < row.length)
             c1 = double.tryParse(row[rCool1Idx].toString()) ?? 0;
@@ -592,26 +620,44 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
         _endDate = csvRows[3][3].toString();
 
         if (_smartAnalyzer && _serialNumber != null) {
-          setState(() {
-            _statusMessage = "Scraping Owner Name...";
-          });
+          // --- ADD THIS GUARD CHECK ---
+          // If the extension has an error/warning message, it's not installed or outdated. Skip scraping!
+          if (_extensionMessage != null) {
+            print("[DEBUG] Skipping scrape: Smart Analyzer extension is not ready/installed.");
+          } else {
+            setState(() {
+              _statusMessage = "Scraping Owner Name & Wires...";
+            });
 
+            try {
+              final dynamic details = await _fetchFullName(_serialNumber!);
+              if (details is Map) {
+                scrapedFullName = details['fullName']?.toString();
+                final List<dynamic>? rawWires = details['wires'] as List<dynamic>?;
+                final List<String> scrapedWires = rawWires?.map((e) => e.toString()).toList() ?? [];
 
-          try {
-            // Guarantee it never hangs for more than 8 seconds
-            scrapedFullName = await _fetchFullName(_serialNumber!).timeout(
-              const Duration(seconds: 8),
-              onTimeout: () {
-                print("[DEBUG] _fetchFullName timed out in Flutter.");
-                return null;
-              },
-            );
-          } catch (e) {
-            print("[DEBUG] Error during owner scraping: $e");
-            scrapedFullName = null;
+                setState(() {
+                  _wireButtons = scrapedWires;
+                });
+              }
+            } catch (e) {
+              print("[DEBUG] Error during device details scraping: $e");
+              scrapedFullName = null;
+            }
           }
         }
       }
+
+      // Add setState here to save the name for the UI:
+      if (scrapedFullName != null &&
+          scrapedFullName.isNotEmpty &&
+          scrapedFullName != "Not Found" &&
+          scrapedFullName != "<missing>") {
+        setState(() {
+          _ownerName = scrapedFullName;
+        });
+      }
+
 // Write Owner Full Name into Row 5, Column D if successfully scraped
       // Safely write Owner Full Name only if it's a valid, real name
       if (scrapedFullName != null &&
@@ -627,10 +673,6 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
           print("[DEBUG] Error writing owner name to sheet: $e");
         }
       }
-
-
-
-
 
       List<int> columnsToSkip = [];
 
@@ -706,40 +748,23 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
         List<List<dynamic>> dataRows = csvRows.sublist(6);
 
         // --- NEW SEPARATED TRACKING VARIABLES ---
-        double totalS1Delta = 0.0,
-            totalS1Sec = 0.0;
-        double totalS2Delta = 0.0,
-            totalS2Sec = 0.0;
-        double totalAuxDelta = 0.0,
-            totalAuxSec = 0.0;
+        double totalS1Delta = 0.0, totalS1Sec = 0.0;
+        double totalS2Delta = 0.0, totalS2Sec = 0.0;
+        double totalAuxDelta = 0.0, totalAuxSec = 0.0;
 
-        bool inS1 = false,
-            inS2 = false,
-            inAux = false;
-        double s1Start = 0.0,
-            s2Start = 0.0,
-            auxStart = 0.0;
-        double s1End = 0.0,
-            s2End = 0.0,
-            auxEnd = 0.0;
-        double currentS1Sec = 0.0,
-            currentS2Sec = 0.0,
-            currentAuxSec = 0.0;
+        bool inS1 = false, inS2 = false, inAux = false;
+        double s1Start = 0.0, s2Start = 0.0, auxStart = 0.0;
+        double s1End = 0.0, s2End = 0.0, auxEnd = 0.0;
+        double currentS1Sec = 0.0, currentS2Sec = 0.0, currentAuxSec = 0.0;
 
         // --- NEW COOLING TRACKING VARIABLES ---
-        double totalC1Delta = 0.0,
-            totalC1Sec = 0.0;
-        double totalC2Delta = 0.0,
-            totalC2Sec = 0.0;
+        double totalC1Delta = 0.0, totalC1Sec = 0.0;
+        double totalC2Delta = 0.0, totalC2Sec = 0.0;
 
-        bool inC1 = false,
-            inC2 = false;
-        double c1Start = 0.0,
-            c2Start = 0.0;
-        double c1End = 0.0,
-            c2End = 0.0;
-        double currentC1Sec = 0.0,
-            currentC2Sec = 0.0;
+        bool inC1 = false, inC2 = false;
+        double c1Start = 0.0, c2Start = 0.0;
+        double c1End = 0.0, c2End = 0.0;
+        double currentC1Sec = 0.0, currentC2Sec = 0.0;
 
         for (int i = 6; i < csvRows.length; i++) {
           // Fan
@@ -750,12 +775,8 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
             if (val != null) totalFanSeconds += val;
           }
 
-          double rowHeat1 = 0.0,
-              rowHeat2 = 0.0,
-              rowAux1 = 0.0,
-              rowAux2 = 0.0;
-          double rowCool1 = 0.0,
-              rowCool2 = 0.0;
+          double rowHeat1 = 0.0, rowHeat2 = 0.0, rowAux1 = 0.0, rowAux2 = 0.0;
+          double rowCool1 = 0.0, rowCool2 = 0.0;
 
           if (cool1Idx != -1 && cool1Idx < csvRows[i].length) {
             rowCool1 = double.tryParse(csvRows[i][cool1Idx].toString()) ?? 0.0;
@@ -805,7 +826,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
 
           // Determine the active equipment state for this row
           int currentState =
-          0; // 0 = off, 1 = S1, 2 = S2, 3 = Aux, 4 = Cool1, 5 = Cool2
+              0; // 0 = off, 1 = S1, 2 = S2, 3 = Aux, 4 = Cool1, 5 = Cool2
           double activeSeconds = 0.0;
 
           if (rowAux1 > 0 || rowAux2 > 0) {
@@ -1145,12 +1166,8 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
           colRange.columnWidth = autoWidth / 2;
         }
       }
-      sheet
-          .getRangeByIndex(1, 4)
-          .cellStyle
-          .backColor = '#ffff00';
+      sheet.getRangeByIndex(1, 4).cellStyle.backColor = '#ffff00';
       if (csvRows.length >= 7) sheet.getRangeByIndex(7, 1).freezePanes();
-
 
       // ---> MOVE THE OWNER NAME WRITING HERE SO IT NEVER GETS OVERWRITTEN:
       if (scrapedFullName != null && scrapedFullName.isNotEmpty) {
@@ -1163,7 +1180,6 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
           print("[DEBUG] Error writing owner name to sheet: $e");
         }
       }
-
 
       final List<int> outBytes = workbook.saveAsStream();
       final blob = html.Blob([
@@ -1204,14 +1220,10 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
 
   bool _isUpToDate(String local, String remote) {
     try {
-      List<int> localParts = local
-          .split('.')
-          .map((e) => int.tryParse(e) ?? 0)
-          .toList();
-      List<int> remoteParts = remote
-          .split('.')
-          .map((e) => int.tryParse(e) ?? 0)
-          .toList();
+      List<int> localParts =
+          local.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+      List<int> remoteParts =
+          remote.split('.').map((e) => int.tryParse(e) ?? 0).toList();
 
       int maxLength = localParts.length > remoteParts.length
           ? localParts.length
@@ -1264,9 +1276,8 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                   children: [
                     MouseRegion(
                       // The cursor will now correctly show the pointer/hand
-                      cursor:
-                      (_latestVersion != null &&
-                          !_isUpToDate(widget.version, _latestVersion!))
+                      cursor: (_latestVersion != null &&
+                              !_isUpToDate(widget.version, _latestVersion!))
                           ? SystemMouseCursors.click
                           : SystemMouseCursors.basic,
                       child: GestureDetector(
@@ -1285,12 +1296,11 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                               color: versionColor,
                               fontSize: 12,
                               fontWeight: versionWeight,
-                              decoration:
-                              (_latestVersion != null &&
-                                  !_isUpToDate(
-                                    widget.version,
-                                    _latestVersion!,
-                                  ))
+                              decoration: (_latestVersion != null &&
+                                      !_isUpToDate(
+                                        widget.version,
+                                        _latestVersion!,
+                                      ))
                                   ? TextDecoration.underline
                                   : TextDecoration.none,
                             ),
@@ -1408,7 +1418,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                       ),
                                       child: Tooltip(
                                         message:
-                                        "Removes new columns from the report, such as Silent mode.",
+                                            "Removes new columns from the report, such as Silent mode.",
                                         child: Column(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
@@ -1427,7 +1437,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                               child: Switch(
                                                 value: _removeNewColumns,
                                                 activeThumbColor:
-                                                Colors.blueAccent,
+                                                    Colors.blueAccent,
                                                 onChanged: (bool value) {
                                                   setState(() {
                                                     _removeNewColumns = value;
@@ -1460,7 +1470,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                       ),
                                       child: Tooltip(
                                         message:
-                                        "Removes air quality information.",
+                                            "Removes air quality information.",
                                         child: Column(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
@@ -1479,7 +1489,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                               child: Switch(
                                                 value: _removeAirQuality,
                                                 activeThumbColor:
-                                                Colors.blueAccent,
+                                                    Colors.blueAccent,
                                                 onChanged: (bool value) {
                                                   setState(() {
                                                     _removeAirQuality = value;
@@ -1512,7 +1522,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                       ),
                                       child: Tooltip(
                                         message:
-                                        "Enables smart analyzer features. (coming soon)",
+                                            "Enables smart analyzer features. (coming soon)",
                                         child: Column(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
@@ -1531,7 +1541,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                               child: Switch(
                                                 value: _smartAnalyzer,
                                                 activeThumbColor:
-                                                Colors.blueAccent,
+                                                    Colors.blueAccent,
                                                 onChanged: (bool value) {
                                                   setState(() {
                                                     _smartAnalyzer = value;
@@ -1602,6 +1612,19 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                         fontWeight: FontWeight.w500,
                                       ),
                                     ),
+
+                                    if (_extensionMessage == null) ...[
+                                      const SizedBox(width: 8),
+                                      IconButton(
+                                        icon: const Icon(
+                                            Icons.delete_sweep_rounded),
+                                        color: Colors.blueGrey,
+                                        tooltip: "Clear Extension Cache",
+                                        onPressed: () {
+                                          _clearAllCache();
+                                        },
+                                      ),
+                                    ],
                                   ],
                                 ),
                               ),
@@ -1631,6 +1654,29 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                             titleColor: Colors.black,
                             initiallyExpanded: true,
                             children: [
+
+                              if (_smartAnalyzer && _ownerName != null)
+                                Align(
+                                  alignment: Alignment.topLeft,
+                                  child: Container(
+                                    width: double.infinity,
+                                    margin: const EdgeInsets.only(bottom: 8),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 4,
+                                      horizontal: 8,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFFFFF00),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: Colors.black12),
+                                    ),
+                                    child: TipText(
+                                      "Owner Name: $_ownerName",
+                                      textAlign: TextAlign.left,
+                                    ),
+                                  ),
+                                ),
+
                               Align(
                                 alignment: Alignment.topLeft,
                                 child: Container(
@@ -1691,6 +1737,29 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                   ),
                                 ),
                               ),
+
+                              if (_smartAnalyzer && _wireButtons.isNotEmpty)
+                                Align(
+                                  alignment: Alignment.topLeft,
+                                  child: Container(
+                                    width: double.infinity,
+                                    margin: const EdgeInsets.only(bottom: 8),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 4,
+                                      horizontal: 8,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFFFFF00),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: Colors.black12),
+                                    ),
+                                    child: TipText(
+                                      "Installed Wires: ${_wireButtons.join(', ')}",
+                                      textAlign: TextAlign.left,
+                                    ),
+                                  ),
+                                ),
+
                               if (_startDate != null)
                                 Align(
                                   alignment: Alignment.topLeft,
@@ -1759,7 +1828,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                         // Medium-bold weight looks cleaner than standard bold
                                         color: Colors.blueGrey.shade800,
                                         letterSpacing:
-                                        0.5, // Adds a slight modern touch
+                                            0.5, // Adds a slight modern touch
                                       ),
                                     ),
                                   ),
@@ -1882,7 +1951,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                         // Medium-bold weight looks cleaner than standard bold
                                         color: Colors.blueGrey.shade800,
                                         letterSpacing:
-                                        0.5, // Adds a slight modern touch
+                                            0.5, // Adds a slight modern touch
                                       ),
                                     ),
                                   ),
@@ -1904,9 +1973,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                         ),
                                       ),
                                       child: TipText(
-                                        "Fan: ${(_totalFanHours! * 3600)
-                                            .toInt()} seconds (${_totalFanHours!
-                                            .toStringAsFixed(2)} hours)",
+                                        "Fan: ${(_totalFanHours! * 3600).toInt()} seconds (${_totalFanHours!.toStringAsFixed(2)} hours)",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
@@ -1930,10 +1997,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                         ),
                                       ),
                                       child: TipText(
-                                        "Cool (Stage 1): ${(_totalCool1Hours! *
-                                            3600)
-                                            .toInt()} seconds (${_totalCool1Hours!
-                                            .toStringAsFixed(2)} hours)",
+                                        "Cool (Stage 1): ${(_totalCool1Hours! * 3600).toInt()} seconds (${_totalCool1Hours!.toStringAsFixed(2)} hours)",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
@@ -1955,10 +2019,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                         ),
                                       ),
                                       child: TipText(
-                                        "Cool (Stage 2): ${(_totalCool2Hours! *
-                                            3600)
-                                            .toInt()} seconds (${_totalCool2Hours!
-                                            .toStringAsFixed(2)} hours)",
+                                        "Cool (Stage 2): ${(_totalCool2Hours! * 3600).toInt()} seconds (${_totalCool2Hours!.toStringAsFixed(2)} hours)",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
@@ -1982,10 +2043,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                         ),
                                       ),
                                       child: TipText(
-                                        "Heat (Stage 1): ${(_totalHeat1Hours! *
-                                            3600)
-                                            .toInt()} seconds (${_totalHeat1Hours!
-                                            .toStringAsFixed(2)} hours)",
+                                        "Heat (Stage 1): ${(_totalHeat1Hours! * 3600).toInt()} seconds (${_totalHeat1Hours!.toStringAsFixed(2)} hours)",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
@@ -2007,10 +2065,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                         ),
                                       ),
                                       child: TipText(
-                                        "Heat (Stage 2): ${(_totalHeat2Hours! *
-                                            3600)
-                                            .toInt()} seconds (${_totalHeat2Hours!
-                                            .toStringAsFixed(2)} hours)",
+                                        "Heat (Stage 2): ${(_totalHeat2Hours! * 3600).toInt()} seconds (${_totalHeat2Hours!.toStringAsFixed(2)} hours)",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
@@ -2034,10 +2089,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                         ),
                                       ),
                                       child: TipText(
-                                        "Aux Heat (Stage 1): ${(_totalAux1Hours! *
-                                            3600)
-                                            .toInt()} seconds (${_totalAux1Hours!
-                                            .toStringAsFixed(2)} hours)",
+                                        "Aux Heat (Stage 1): ${(_totalAux1Hours! * 3600).toInt()} seconds (${_totalAux1Hours!.toStringAsFixed(2)} hours)",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
@@ -2059,10 +2111,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                         ),
                                       ),
                                       child: TipText(
-                                        "Aux Heat (Stage 2): ${(_totalAux2Hours! *
-                                            3600)
-                                            .toInt()} seconds (${_totalAux2Hours!
-                                            .toStringAsFixed(2)} hours)",
+                                        "Aux Heat (Stage 2): ${(_totalAux2Hours! * 3600).toInt()} seconds (${_totalAux2Hours!.toStringAsFixed(2)} hours)",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
@@ -2089,7 +2138,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                         // Medium-bold weight looks cleaner than standard bold
                                         color: Colors.blueGrey.shade800,
                                         letterSpacing:
-                                        0.5, // Adds a slight modern touch
+                                            0.5, // Adds a slight modern touch
                                       ),
                                     ),
                                   ),
@@ -2112,9 +2161,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                         ),
                                       ),
                                       child: TipText(
-                                        "Heat: ${_avgHeatSetTemp!
-                                            .toStringAsFixed(1)}${(_isCelsius ==
-                                            true) ? '°C' : '°F'}",
+                                        "Heat: ${_avgHeatSetTemp!.toStringAsFixed(1)}${(_isCelsius == true) ? '°C' : '°F'}",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
@@ -2138,9 +2185,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                         ),
                                       ),
                                       child: TipText(
-                                        "Cool: ${_avgCoolSetTemp!
-                                            .toStringAsFixed(1)}${(_isCelsius ==
-                                            true) ? '°C' : '°F'}",
+                                        "Cool: ${_avgCoolSetTemp!.toStringAsFixed(1)}${(_isCelsius == true) ? '°C' : '°F'}",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
@@ -2160,8 +2205,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                       vertical: 12.0,
                                     ),
                                     child: Text(
-                                      "Runtime Efficiency (${(_isCelsius ==
-                                          true) ? '°C' : '°F'}/hr)",
+                                      "Runtime Efficiency (${(_isCelsius == true) ? '°C' : '°F'}/hr)",
                                       style: TextStyle(
                                         fontSize: 18,
                                         fontWeight: FontWeight.w600,
@@ -2189,9 +2233,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                         ),
                                       ),
                                       child: TipText(
-                                        "Heating Stage 1: ${_stage1HeatingSpeed!
-                                            .toStringAsFixed(2)}${(_isCelsius ==
-                                            true) ? '°C' : '°F'}/hr",
+                                        "Heating Stage 1: ${_stage1HeatingSpeed!.toStringAsFixed(2)}${(_isCelsius == true) ? '°C' : '°F'}/hr",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
@@ -2215,9 +2257,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                         ),
                                       ),
                                       child: TipText(
-                                        "Heating Stage 2: ${_stage2HeatingSpeed!
-                                            .toStringAsFixed(2)}${(_isCelsius ==
-                                            true) ? '°C' : '°F'}/hr",
+                                        "Heating Stage 2: ${_stage2HeatingSpeed!.toStringAsFixed(2)}${(_isCelsius == true) ? '°C' : '°F'}/hr",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
@@ -2241,9 +2281,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                         ),
                                       ),
                                       child: TipText(
-                                        "Heating Aux Heat: ${_auxHeatingSpeed!
-                                            .toStringAsFixed(2)}${(_isCelsius ==
-                                            true) ? '°C' : '°F'}/hr",
+                                        "Heating Aux Heat: ${_auxHeatingSpeed!.toStringAsFixed(2)}${(_isCelsius == true) ? '°C' : '°F'}/hr",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
@@ -2268,9 +2306,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                         ),
                                       ),
                                       child: TipText(
-                                        "Cool Stage 1: ${_stage1CoolingSpeed!
-                                            .toStringAsFixed(2)}${(_isCelsius ==
-                                            true) ? '°C' : '°F'}/hr",
+                                        "Cool Stage 1: ${_stage1CoolingSpeed!.toStringAsFixed(2)}${(_isCelsius == true) ? '°C' : '°F'}/hr",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
@@ -2294,9 +2330,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                         ),
                                       ),
                                       child: TipText(
-                                        "Cool Stage 2: ${_stage2CoolingSpeed!
-                                            .toStringAsFixed(2)}${(_isCelsius ==
-                                            true) ? '°C' : '°F'}/hr",
+                                        "Cool Stage 2: ${_stage2CoolingSpeed!.toStringAsFixed(2)}${(_isCelsius == true) ? '°C' : '°F'}/hr",
                                         textAlign: TextAlign.left,
                                       ),
                                     ),
@@ -2308,7 +2342,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                             ExpandableSectionCard(
                               maxWidth: 350,
                               title:
-                              " Reboot Indicators Table (${_rebootCount ?? 0})",
+                                  " Reboot Indicators Table (${_rebootCount ?? 0})",
                               titleColor: Colors.black,
                               titleBackgroundColor: const Color(0xFFEF5350),
                               initiallyExpanded: false,
@@ -2338,7 +2372,7 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                             // Evenly expands to fill the remaining width
                                           },
                                           defaultVerticalAlignment:
-                                          TableCellVerticalAlignment.middle,
+                                              TableCellVerticalAlignment.middle,
                                           children: [
                                             // 1. Table Header Row
                                             TableRow(
@@ -2355,10 +2389,9 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                                     textAlign: TextAlign.center,
                                                     style: TextStyle(
                                                       fontWeight:
-                                                      FontWeight.bold,
+                                                          FontWeight.bold,
                                                       color: Colors
-                                                          .blueGrey
-                                                          .shade700,
+                                                          .blueGrey.shade700,
                                                     ),
                                                   ),
                                                 ),
@@ -2371,10 +2404,9 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                                     textAlign: TextAlign.center,
                                                     style: TextStyle(
                                                       fontWeight:
-                                                      FontWeight.bold,
+                                                          FontWeight.bold,
                                                       color: Colors
-                                                          .blueGrey
-                                                          .shade700,
+                                                          .blueGrey.shade700,
                                                     ),
                                                   ),
                                                 ),
@@ -2387,10 +2419,9 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                                     textAlign: TextAlign.center,
                                                     style: TextStyle(
                                                       fontWeight:
-                                                      FontWeight.bold,
+                                                          FontWeight.bold,
                                                       color: Colors
-                                                          .blueGrey
-                                                          .shade700,
+                                                          .blueGrey.shade700,
                                                     ),
                                                   ),
                                                 ),
@@ -2401,7 +2432,9 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                             ..._rebootDetails
                                                 .asMap()
                                                 .entries
-                                                .map((entry,) {
+                                                .map((
+                                              entry,
+                                            ) {
                                               final int index = entry.key;
                                               final dynamic detail =
                                                   entry.value;
@@ -2414,18 +2447,15 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
 
                                               // Safely extract from our new Map structure
                                               if (detail is Map) {
-                                                rebootStartDate =
-                                                    detail['date']
+                                                rebootStartDate = detail['date']
                                                         ?.toString() ??
-                                                        '';
-                                                rebootStartTime =
-                                                    detail['time']
+                                                    '';
+                                                rebootStartTime = detail['time']
                                                         ?.toString() ??
-                                                        '';
-                                                rebootType =
-                                                    detail['type']
+                                                    '';
+                                                rebootType = detail['type']
                                                         ?.toString() ??
-                                                        'None';
+                                                    'None';
                                               }
 
                                               // Determine the row color based on the equipment state
@@ -2450,35 +2480,35 @@ class _ExcelProcessorAppState extends State<ExcelProcessorApp> {
                                                 children: [
                                                   Padding(
                                                     padding:
-                                                    const EdgeInsets.all(
+                                                        const EdgeInsets.all(
                                                       10.0,
                                                     ),
                                                     child: Text(
                                                       rebootCounter,
                                                       textAlign:
-                                                      TextAlign.center,
+                                                          TextAlign.center,
                                                     ),
                                                   ),
                                                   Padding(
                                                     padding:
-                                                    const EdgeInsets.all(
+                                                        const EdgeInsets.all(
                                                       10.0,
                                                     ),
                                                     child: Text(
                                                       rebootStartDate,
                                                       textAlign:
-                                                      TextAlign.center,
+                                                          TextAlign.center,
                                                     ),
                                                   ),
                                                   Padding(
                                                     padding:
-                                                    const EdgeInsets.all(
+                                                        const EdgeInsets.all(
                                                       10.0,
                                                     ),
                                                     child: Text(
                                                       rebootStartTime,
                                                       textAlign:
-                                                      TextAlign.center,
+                                                          TextAlign.center,
                                                     ),
                                                   ),
                                                 ],
@@ -2566,16 +2596,15 @@ class KnowledgeBaseService {
 }
 
 class LocalSearchService {
-  List<SearchResult> retrieveTopMatches(List<KnowledgeItem> items,
-      String query, {
-        int limit = 5,
-      }) {
-    final results =
-    items
+  List<SearchResult> retrieveTopMatches(
+    List<KnowledgeItem> items,
+    String query, {
+    int limit = 5,
+  }) {
+    final results = items
         .map(
-          (item) =>
-          SearchResult(item: item, score: _scoreItem(item, query)),
-    )
+          (item) => SearchResult(item: item, score: _scoreItem(item, query)),
+        )
         .where((result) => result.score > 0)
         .toList()
       ..sort((a, b) => b.score.compareTo(a.score));
@@ -2592,8 +2621,7 @@ class LocalSearchService {
     if (item.content.toLowerCase().contains(q)) score += 7;
     if (item.category.toLowerCase().contains(q)) score += 4;
     if (item.tags.any(
-          (tag) =>
-      tag.toLowerCase().contains(q) || q.contains(tag.toLowerCase()),
+      (tag) => tag.toLowerCase().contains(q) || q.contains(tag.toLowerCase()),
     )) {
       score += 8;
     }
@@ -2623,8 +2651,7 @@ class GeminiService {
     required String userQuery,
     required List<SearchResult> matches,
   }) async {
-    final context = matches
-        .map((result) {
+    final context = matches.map((result) {
       final item = result.item;
       return [
         'ID: ${item.id}',
@@ -2635,11 +2662,9 @@ class GeminiService {
         'Content: ${item.content}',
         'Source: ${item.source}',
       ].join('\n');
-    })
-        .join('\n\n---\n\n');
+    }).join('\n\n---\n\n');
 
-    final prompt =
-    '''You are a friendly AI support assistant.
+    final prompt = '''You are a friendly AI support assistant.
 
 Handle messages in two modes:
 
@@ -2709,9 +2734,7 @@ $userQuery''';
         .whereType<String>()
         .join('\n');
 
-    if (text
-        .trim()
-        .isEmpty) {
+    if (text.trim().isEmpty) {
       throw Exception('Gemini returned an empty response.');
     }
 
